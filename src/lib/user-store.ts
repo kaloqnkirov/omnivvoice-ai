@@ -13,6 +13,7 @@ import {
   DEFAULT_PROFILE_SOCIAL,
   type ProfileSocial,
 } from '@/lib/profile-social'
+import { DEFAULT_SNAP_PLUS, type SnapPlusState } from '@/lib/snap-plus'
 
 export type ContactMethod = 'email' | 'phone'
 
@@ -233,9 +234,10 @@ export type AppPreferences = {
   experience: ExperienceSettings
   presence: PresenceStatus
   profileSocial: ProfileSocial
+  snapPlus: SnapPlusState
 }
 
-const STORAGE_KEY = 'omnivvoice.preferences.v6'
+const STORAGE_KEY = 'omnivvoice.preferences.v7'
 
 function emptyPlatform(): PlatformConnection {
   return {
@@ -590,6 +592,7 @@ function defaults(): AppPreferences {
     experience: DEFAULT_EXPERIENCE,
     presence: 'online',
     profileSocial: DEFAULT_PROFILE_SOCIAL,
+    snapPlus: DEFAULT_SNAP_PLUS,
   }
 }
 
@@ -599,6 +602,7 @@ export function loadPreferences(): AppPreferences {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ||
+      window.localStorage.getItem('omnivvoice.preferences.v6') ||
       window.localStorage.getItem('omnivvoice.preferences.v5') ||
       window.localStorage.getItem('omnivvoice.preferences.v4') ||
       window.localStorage.getItem('omnivvoice.preferences.v3') ||
@@ -668,6 +672,17 @@ export function loadPreferences(): AppPreferences {
         ...DEFAULT_PROFILE_SOCIAL,
         ...(parsed.profileSocial || {}),
         stories: parsed.profileSocial?.stories || [],
+      },
+      snapPlus: {
+        ...DEFAULT_SNAP_PLUS,
+        ...(parsed.snapPlus || {}),
+        friendships: parsed.snapPlus?.friendships || {},
+        memories: parsed.snapPlus?.memories?.length
+          ? parsed.snapPlus.memories
+          : DEFAULT_SNAP_PLUS.memories,
+        spotlight: parsed.snapPlus?.spotlight?.length
+          ? parsed.snapPlus.spotlight
+          : DEFAULT_SNAP_PLUS.spotlight,
       },
     }
   } catch {

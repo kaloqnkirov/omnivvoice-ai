@@ -7,17 +7,21 @@ import {
   Archive,
   Ban,
   BellOff,
+  Camera,
   ChevronDown,
   Copy,
   Headphones,
   Link2,
+  Lock,
   LogOut,
+  MapPin,
   MessageCircle,
   Moon,
   MoreHorizontal,
   Pencil,
   Phone,
   Pin,
+  Radio,
   Search,
   Settings2,
   Sun,
@@ -31,9 +35,15 @@ import {
 import ChatComposer from '@/components/ChatComposer'
 import ContactImportModal from '@/components/ContactImportModal'
 import ContextMenu, { type ContextMenuItem } from '@/components/ContextMenu'
+import FriendshipProfile from '@/components/FriendshipProfile'
+import MemoriesVault from '@/components/MemoriesVault'
+import MoodAvatar from '@/components/MoodAvatar'
 import ProfileHub from '@/components/ProfileHub'
+import QuickCapture from '@/components/QuickCapture'
 import RichMessageBubble from '@/components/RichMessageBubble'
 import SettingsPanel from '@/components/SettingsPanel'
+import SpotlightFeed from '@/components/SpotlightFeed'
+import StudioMap from '@/components/StudioMap'
 import type { Conversation, ConversationMessage, InviteLink } from '@/lib/auth-types'
 import { hasFullAccess, isAdminUser, needsCheckout } from '@/lib/access'
 import {
@@ -41,7 +51,13 @@ import {
   isClientBackendEnabled,
   signOutBackend,
 } from '@/lib/auth-client'
-import { activeStories, getMood } from '@/lib/profile-social'
+import { activeStories, createStory, getMood } from '@/lib/profile-social'
+import {
+  DEFAULT_SNAP_PLUS,
+  buildMapNodes,
+  bumpFriendship,
+  ensureFriendship,
+} from '@/lib/snap-plus'
 import { presenceLabel } from '@/lib/smart-replies'
 import { useTheme } from '@/lib/theme'
 
@@ -62,6 +78,11 @@ export default function DashboardPage() {
   >('all')
   const [replyPreview, setReplyPreview] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [captureOpen, setCaptureOpen] = useState(false)
+  const [mapOpen, setMapOpen] = useState(false)
+  const [memoriesOpen, setMemoriesOpen] = useState(false)
+  const [spotlightOpen, setSpotlightOpen] = useState(false)
+  const [friendshipId, setFriendshipId] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{
     x: number
     y: number
@@ -71,12 +92,58 @@ export default function DashboardPage() {
   const admin = isAdminUser(user)
   const fullAccess = hasFullAccess(user)
   const mood = getMood(prefs.profileSocial?.moodId)
+  const snap = prefs.snapPlus || DEFAULT_SNAP_PLUS
   const [myStories, setMyStories] = useState(
     () => prefs.profileSocial?.stories || []
   )
   useEffect(() => {
     setMyStories(activeStories(prefs.profileSocial?.stories || []))
   }, [prefs.profileSocial?.stories])
+
+  const mapNodes = useMemo(() => {
+    if (!user) return []
+    return buildMapNodes({
+      meName: user.displayName,
+      meMood: prefs.profileSocial?.moodId || 'focused',
+      mePresence: prefs.presence,
+      meLocation: prefs.profileSocial?.locationLabel || 'Studio',
+      showMe: Boolean(prefs.profileSocial?.showOnMap ?? true),
+      people: prefs.subscribers
+        .filter((s) => s.status !== 'blocked')
+        .slice(0, 6)
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          presence: s.presence || 'offline',
+          language: s.language,
+        })),
+    })
+  }, [user, prefs.profileSocial, prefs.presence, prefs.subscribers])
+
+  const friendshipTarget = useMemo(() => {
+    if (!friendshipId) return null
+    const sub = prefs.subscribers.find((s) => s.id === friendshipId)
+    if (sub) {
+      return {
+        id: sub.id,
+        name: sub.name,
+        language: sub.language,
+        presence: sub.presence || 'offline',
+        avatarUrl: sub.avatarDataUrl,
+      }
+    }
+    const conv = prefs.conversations.find((c) => c.id === friendshipId)
+    if (conv) {
+      return {
+        id: conv.id,
+        name: conv.title,
+        language: conv.members[0]?.language || 'bg',
+        presence: conv.members[0]?.presence || 'online',
+        avatarUrl: conv.members[0]?.avatarDataUrl,
+      }
+    }
+    return null
+  }, [friendshipId, prefs.subscribers, prefs.conversations])
 
   useEffect(() => {
     if (!hydrated) return
@@ -154,6 +221,26 @@ export default function DashboardPage() {
       unread: 0,
       messages: [...active.messages, msg],
     })
+    const contactKey = active.members[0]?.id || active.id
+    const prev = ensureFriendship(snap, contactKey)
+    updatePrefs({
+      snapPlus: bumpFriendship(snap, contactKey, {
+        messagesExchanged: prev.messagesExchanged + 1,
+        lastInteractionAt: msg.createdAt,
+        streakDays: Math.max(prev.streakDays, 1),
+        languagesUsed: Array.from(
+          new Set([
+            ...prev.languagesUsed,
+            user?.nativeLanguage || 'bg',
+            active.members[0]?.language || 'en',
+          ])
+        ),
+      }),
+    })
+  }
+
+  function patchSnap(patch: Partial<typeof snap>) {
+    updatePrefs({ snapPlus: { ...snap, ...patch } })
   }
 
   function reactToMessage(messageId: string, emoji: string) {
@@ -318,6 +405,12 @@ export default function DashboardPage() {
         },
       },
       {
+        id: 'friendship',
+        label: 'Friendship Profile',
+        icon: Users,
+        onClick: () => setFriendshipId(roomId),
+      },
+      {
         id: 'enter',
         label: 'Влез в стаята',
         icon: Video,
@@ -388,6 +481,12 @@ export default function DashboardPage() {
     const sub = prefs.subscribers.find((s) => s.id === subId)
     if (!sub) return []
     return [
+      {
+        id: 'friendship',
+        label: 'Friendship Profile',
+        icon: Users,
+        onClick: () => setFriendshipId(subId),
+      },
       {
         id: 'msg',
         label: 'Отвори чат',
@@ -591,29 +690,16 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className={`relative h-11 w-11 overflow-hidden rounded-full bg-[var(--accent-soft)] ${
-              myStories.length
-                ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-[var(--background)]'
-                : 'ring-1 ring-[var(--panel-border)]'
-            }`}
             onClick={() => setProfileOpen(true)}
             title="Профил · Stories · настроение"
           >
-            {user.avatarDataUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={user.avatarDataUrl}
-                alt={user.displayName}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <span className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--accent)]">
-                {user.displayName.slice(0, 1).toUpperCase()}
-              </span>
-            )}
-            <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-[var(--panel)] px-0.5 text-[10px] shadow">
-              {mood.emoji}
-            </span>
+            <MoodAvatar
+              moodId={prefs.profileSocial?.moodId || 'focused'}
+              name={user.displayName}
+              imageUrl={user.avatarDataUrl}
+              size="md"
+              ring={myStories.length > 0}
+            />
           </button>
           <button
             type="button"
@@ -629,6 +715,38 @@ export default function DashboardPage() {
         </div>
 
         <div className="relative flex items-center gap-2">
+          <button
+            type="button"
+            className="ov-icon-btn"
+            title="Quick Capture"
+            onClick={() => setCaptureOpen(true)}
+          >
+            <Camera className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="ov-icon-btn"
+            title="Studio Map"
+            onClick={() => setMapOpen(true)}
+          >
+            <MapPin className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="ov-icon-btn"
+            title="Memories / Eyes Only"
+            onClick={() => setMemoriesOpen(true)}
+          >
+            <Lock className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="ov-icon-btn"
+            title="Spotlight+"
+            onClick={() => setSpotlightOpen(true)}
+          >
+            <Radio className="h-4 w-4" />
+          </button>
           <button type="button" className="ov-icon-btn" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
@@ -949,9 +1067,16 @@ export default function DashboardPage() {
           {active ? (
             <>
               <div className="flex items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold">{active.title}</p>
-                  <p className="text-xs text-[var(--muted)]">
+                <button
+                  type="button"
+                  className="min-w-0 text-left"
+                  onClick={() =>
+                    setFriendshipId(active.members[0]?.id || active.id)
+                  }
+                  title="Friendship Profile"
+                >
+                  <p className="truncate text-sm font-semibold">{active.title}</p>
+                  <p className="truncate text-xs text-[var(--muted)]">
                     {active.isGroup
                       ? `${active.members.length} участници`
                       : presenceLabel(active.members[0]?.presence || 'online')}
@@ -961,7 +1086,7 @@ export default function DashboardPage() {
                       ? ` · изчезва след ${active.disappearAfter}`
                       : ''}
                   </p>
-                </div>
+                </button>
                 <div className="flex items-center gap-1.5">
                   <Link
                     href={`/room/${active.id}`}
@@ -1184,6 +1309,182 @@ export default function DashboardPage() {
               : []
         }
       />
+
+      <QuickCapture
+        open={captureOpen}
+        peerLanguage={active?.members[0]?.language || prefs.voice.targetLanguage}
+        onClose={() => setCaptureOpen(false)}
+        onSendToChat={({ imageDataUrl, caption, captionTranslated }) => {
+          appendMessage({
+            text: caption,
+            kind: 'image',
+            mediaUrl: imageDataUrl,
+            caption: captionTranslated,
+            translatedText: captionTranslated,
+          })
+        }}
+        onPostStory={({ imageDataUrl, caption }) => {
+          const story = createStory({
+            type: 'image',
+            imageDataUrl,
+            text: caption,
+          })
+          updatePrefs({
+            profileSocial: {
+              ...prefs.profileSocial,
+              stories: [story, ...(prefs.profileSocial?.stories || [])],
+            },
+          })
+        }}
+        onSaveMemory={({ imageDataUrl, caption, locked }) => {
+          patchSnap({
+            memories: [
+              {
+                id: `mem_${Date.now()}`,
+                kind: 'photo',
+                title: caption,
+                body: caption,
+                mediaUrl: imageDataUrl,
+                locked,
+                createdAt: new Date().toISOString(),
+                tags: locked ? ['eyes-only'] : ['snap'],
+              },
+              ...snap.memories,
+            ],
+          })
+        }}
+      />
+
+      <StudioMap
+        open={mapOpen}
+        nodes={mapNodes}
+        onClose={() => setMapOpen(false)}
+        onSelect={(nodeId) => {
+          setMapOpen(false)
+          if (nodeId === 'me') {
+            setProfileOpen(true)
+            return
+          }
+          setFriendshipId(nodeId)
+        }}
+      />
+
+      <MemoriesVault
+        open={memoriesOpen}
+        memories={snap.memories}
+        vaultPin={snap.vaultPin}
+        unlockedUntil={snap.vaultUnlockedUntil}
+        onClose={() => setMemoriesOpen(false)}
+        onUnlock={(until) => patchSnap({ vaultUnlockedUntil: until })}
+        onLock={() => patchSnap({ vaultUnlockedUntil: 0 })}
+        onDelete={(id) =>
+          patchSnap({ memories: snap.memories.filter((m) => m.id !== id) })
+        }
+        onChangePin={(pin) => patchSnap({ vaultPin: pin || '1234' })}
+      />
+
+      <SpotlightFeed
+        open={spotlightOpen}
+        items={snap.spotlight}
+        onClose={() => setSpotlightOpen(false)}
+        onToggleLike={(id) =>
+          patchSnap({
+            spotlight: snap.spotlight.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    likedByMe: !item.likedByMe,
+                    likes: item.likedByMe ? item.likes - 1 : item.likes + 1,
+                  }
+                : item
+            ),
+          })
+        }
+        onPublishMine={() => {
+          if (!user) return
+          patchSnap({
+            spotlight: [
+              {
+                id: `sp_${Date.now()}`,
+                authorName: user.displayName,
+                title: 'My OmniVoice highlight',
+                caption: prefs.profileSocial?.bio || 'Live multilingual moment',
+                captionTranslated: 'Момент на живо с превод',
+                kind: 'highlight',
+                likes: 1,
+                likedByMe: true,
+                language: user.nativeLanguage || 'bg',
+                createdAt: new Date().toISOString(),
+              },
+              ...snap.spotlight,
+            ],
+          })
+          setSpotlightOpen(false)
+          window.alert('Highlight-ът е в Spotlight+')
+        }}
+      />
+
+      {friendshipTarget ? (
+        <FriendshipProfile
+          open={Boolean(friendshipId)}
+          name={friendshipTarget.name}
+          language={friendshipTarget.language}
+          presence={friendshipTarget.presence}
+          avatarUrl={friendshipTarget.avatarUrl}
+          stats={ensureFriendship(snap, friendshipTarget.id, {
+            languagesUsed: [
+              user.nativeLanguage || 'bg',
+              friendshipTarget.language,
+            ],
+            bestFriendRank:
+              prefs.subscribers.findIndex((s) => s.id === friendshipTarget.id) +
+                1 || undefined,
+          })}
+          onClose={() => setFriendshipId(null)}
+          onMessage={() => {
+            const sub = prefs.subscribers.find(
+              (s) => s.id === friendshipTarget.id
+            )
+            if (sub) startConversationFromSubscriber(sub.id)
+            else setActiveId(friendshipTarget.id)
+            setFriendshipId(null)
+            setTab('chats')
+          }}
+          onCall={() => {
+            const sub = prefs.subscribers.find(
+              (s) => s.id === friendshipTarget.id
+            )
+            if (sub) startConversationFromSubscriber(sub.id)
+            const conv =
+              prefs.conversations.find(
+                (c) =>
+                  c.id === friendshipTarget.id ||
+                  (!c.isGroup && c.title === friendshipTarget.name)
+              ) || active
+            if (conv) router.push(`/room/${conv.id}`)
+            setFriendshipId(null)
+          }}
+          onVideo={() => {
+            const sub = prefs.subscribers.find(
+              (s) => s.id === friendshipTarget.id
+            )
+            if (sub) startConversationFromSubscriber(sub.id)
+            const conv =
+              prefs.conversations.find(
+                (c) =>
+                  c.id === friendshipTarget.id ||
+                  (!c.isGroup && c.title === friendshipTarget.name)
+              ) || active
+            if (conv) router.push(`/room/${conv.id}?video=1`)
+            setFriendshipId(null)
+          }}
+          onNoteChange={(note) =>
+            updatePrefs({
+              snapPlus: bumpFriendship(snap, friendshipTarget.id, { note }),
+            })
+          }
+        />
+      ) : null}
     </div>
   )
 }

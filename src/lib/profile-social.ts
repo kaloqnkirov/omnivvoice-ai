@@ -53,7 +53,7 @@ export const DEFAULT_PROFILE_SOCIAL: ProfileSocial = {
   locationLabel: 'София · Studio',
   streakDays: 3,
   stories: [],
-  showOnMap: false,
+  showOnMap: true,
   publicProfile: true,
 }
 

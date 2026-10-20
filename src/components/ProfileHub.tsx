@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Camera,
   Globe2,
@@ -55,10 +55,10 @@ export default function ProfileHub({
   const [bioDraft, setBioDraft] = useState(social.bio)
   const [locDraft, setLocDraft] = useState(social.locationLabel)
 
-  const liveStories = useMemo(
-    () => activeStories(social.stories || []),
-    [social.stories]
-  )
+  const [liveStories, setLiveStories] = useState(social.stories || [])
+  useEffect(() => {
+    setLiveStories(activeStories(social.stories || []))
+  }, [social.stories])
   const mood = getMood(social.moodId)
 
   if (!open) return null

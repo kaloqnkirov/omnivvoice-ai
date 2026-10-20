@@ -71,7 +71,12 @@ export default function DashboardPage() {
   const admin = isAdminUser(user)
   const fullAccess = hasFullAccess(user)
   const mood = getMood(prefs.profileSocial?.moodId)
-  const myStories = activeStories(prefs.profileSocial?.stories || [])
+  const [myStories, setMyStories] = useState(
+    () => prefs.profileSocial?.stories || []
+  )
+  useEffect(() => {
+    setMyStories(activeStories(prefs.profileSocial?.stories || []))
+  }, [prefs.profileSocial?.stories])
 
   useEffect(() => {
     if (!hydrated) return

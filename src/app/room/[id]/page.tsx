@@ -8,15 +8,21 @@ import {
   Camera,
   CameraOff,
   Image as ImageIcon,
+  Check,
+  LogOut,
   Mic,
   MicOff,
   PhoneOff,
   Settings2,
   Sparkles,
   Subtitles,
+  Trash2,
+  UserMinus,
   Video,
+  X,
 } from 'lucide-react'
 import ChatComposer from '@/components/ChatComposer'
+import ContextMenu, { type ContextMenuItem } from '@/components/ContextMenu'
 import LiveKitStage from '@/components/LiveKitStage'
 import RichMessageBubble from '@/components/RichMessageBubble'
 import RoomPeopleDock from '@/components/RoomPeopleDock'
@@ -86,6 +92,11 @@ function RoomInner() {
   const [dragPeople, setDragPeople] = useState(false)
   const [dropOverStage, setDropOverStage] = useState(false)
   const [peopleToast, setPeopleToast] = useState<string | null>(null)
+  const [memberMenu, setMemberMenu] = useState<{
+    x: number
+    y: number
+    memberId: string
+  } | null>(null)
   const [localRich, setLocalRich] = useState<
     Array<{
       id: string
@@ -481,24 +492,164 @@ function RoomInner() {
     router.push('/dashboard')
   }
 
-  function leaveAsGuest() {
-    if (!useBackendRoom && conv && guest) {
-      updatePrefs({
-        conversations: prefs.conversations.map((item) =>
-          item.id === conv.id
-            ? {
-                ...item,
-                activeGuestIds: (item.activeGuestIds || []).filter(
-                  (id) => id !== guest.guestId
-                ),
-                members: item.members.filter((m) => m.id !== guest.guestId),
-              }
-            : item
-        ),
+  async function removeParticipant(memberId: string) {
+    if (isGuest || memberId === 'you') return
+    const person = members.find((m) => m.id === memberId)
+    const name = person?.name || 'Участник'
+
+    if (useBackendRoom && isUuid(params.id)) {
+      await fetch(`/api/rooms/${params.id}/participants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'remove',
+          participantId: memberId,
+        }),
       })
     }
-    clearGuestSession()
-    router.push('/')
+
+    if (conv) {
+      const now = new Date().toISOString()
+      const subId =
+        prefs.subscribers.find((s) => s.id === memberId || s.name === name)?.id ||
+        memberId
+      patchConv({
+        members: conv.members.filter((m) => m.id !== memberId && m.id !== subId),
+        activeGuestIds: (conv.activeGuestIds || []).filter(
+          (id) => id !== memberId && id !== subId
+        ),
+        joinRequests: (conv.joinRequests || []).map((r) =>
+          r.subscriberId === memberId || r.subscriberId === subId
+            ? { ...r, status: 'declined' as const }
+            : r
+        ),
+        lastMessage: `${name} е премахнат/а от стаята`,
+        updatedAt: now,
+        messages: [
+          ...conv.messages,
+          {
+            id: `msg_${Date.now()}`,
+            fromMe: true,
+            text: `🚪 ${name} е премахнат/а от стаята`,
+            createdAt: now,
+            status: 'sent',
+          },
+        ],
+      })
+    }
+    setMemberMenu(null)
+    toastPeople(`${name} е премахнат/а`)
+  }
+
+  function memberContextItems(memberId: string): ContextMenuItem[] {
+    if (memberId === 'you') {
+      return [
+        {
+          id: 'leave-self',
+          label: 'Напусни стаята',
+          icon: LogOut,
+          danger: true,
+          onClick: () => void leaveRoomSelf(),
+        },
+      ]
+    }
+    const pending = (conv?.joinRequests || []).find(
+      (r) => r.subscriberId === memberId && r.status === 'pending'
+    )
+    if (pending) {
+      return [
+        {
+          id: 'admit',
+          label: 'Приеми в стаята',
+          icon: Check,
+          onClick: () => admitJoinRequest(pending.id),
+        },
+        {
+          id: 'cancel-invite',
+          label: 'Отмени поканата',
+          icon: X,
+          danger: true,
+          onClick: () => declineJoinRequest(pending.id),
+        },
+      ]
+    }
+    return [
+      {
+        id: 'remove',
+        label: 'Премахни от стаята',
+        icon: UserMinus,
+        danger: true,
+        onClick: () => void removeParticipant(memberId),
+      },
+      {
+        id: 'kick',
+        label: 'Изгони (kick)',
+        icon: Trash2,
+        danger: true,
+        onClick: () => void removeParticipant(memberId),
+      },
+    ]
+  }
+
+  async function leaveRoomSelf() {
+    if (isGuest) {
+      if (useBackendRoom && guest?.guestId) {
+        await fetch(`/api/rooms/${params.id}/participants`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'leave',
+            guestId: guest.guestId,
+          }),
+        })
+      }
+      if (!useBackendRoom && conv && guest) {
+        updatePrefs({
+          conversations: prefs.conversations.map((item) =>
+            item.id === conv.id
+              ? {
+                  ...item,
+                  activeGuestIds: (item.activeGuestIds || []).filter(
+                    (id) => id !== guest.guestId
+                  ),
+                  members: item.members.filter((m) => m.id !== guest.guestId),
+                  lastMessage: `${guest.displayName} напусна`,
+                  messages: [
+                    ...item.messages,
+                    {
+                      id: `msg_${Date.now()}`,
+                      fromMe: false,
+                      text: `👋 ${guest.displayName} напусна стаята`,
+                      createdAt: new Date().toISOString(),
+                      status: 'delivered' as const,
+                    },
+                  ],
+                }
+              : item
+          ),
+        })
+      }
+      clearGuestSession()
+      router.push('/')
+      return
+    }
+
+    // Non-host authenticated leave (if somehow co-host/member)
+    if (useBackendRoom && isUuid(params.id)) {
+      const res = await fetch(`/api/rooms/${params.id}/participants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'leave' }),
+      })
+      if (!res.ok) {
+        // Host cannot leave via this — use end session
+        toastPeople('Като хост ползвай „Приключи“')
+        return
+      }
+    }
+    router.push('/dashboard')
   }
 
   async function sendRichChat(partial: {
@@ -667,13 +818,17 @@ function RoomInner() {
         {!isGuest ? (
           <RoomPeopleDock
             subscribers={prefs.subscribers}
-            memberIds={(conv?.members || []).map((m) => m.id)}
+            members={members}
             joinRequests={joinRequests}
             dropActive={dragPeople}
             onDropSubscriber={(id) => void inviteSubscriberByDrag(id)}
             onAdmit={admitJoinRequest}
             onDecline={declineJoinRequest}
             onCopyInvite={copyJoinInvite}
+            onRemoveMember={(id) => void removeParticipant(id)}
+            onMemberContextMenu={(memberId, e) =>
+              setMemberMenu({ x: e.clientX, y: e.clientY, memberId })
+            }
             onDragActiveChange={setDragPeople}
           />
         ) : null}
@@ -718,7 +873,7 @@ function RoomInner() {
             {members.map((person) => (
               <article
                 key={person.id}
-                className="relative min-h-[180px] overflow-hidden rounded-2xl border border-white/15 bg-black/30 p-3 backdrop-blur"
+                className="relative min-h-[180px] cursor-context-menu overflow-hidden rounded-2xl border border-white/15 bg-black/30 p-3 backdrop-blur"
                 style={{
                   backgroundImage: `linear-gradient(180deg,rgba(0,0,0,0.45),rgba(0,0,0,0.65)), url(${
                     prefs.room.customBackground ||
@@ -727,11 +882,24 @@ function RoomInner() {
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
                 }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setMemberMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    memberId: person.id,
+                  })
+                }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-white">{person.name}</p>
-                    <p className="text-[11px] text-white/70">{person.lang}</p>
+                    <p className="text-[11px] text-white/70">
+                      {person.lang}
+                      {!isGuest && person.id !== 'you'
+                        ? ' · десен бутон'
+                        : ''}
+                    </p>
                   </div>
                   {person.guest ? (
                     <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] text-amber-100">
@@ -746,6 +914,15 @@ function RoomInner() {
                     <CameraOff className="h-6 w-6 text-white/50" />
                   )}
                 </div>
+                {person.id === 'you' || isGuest ? (
+                  <button
+                    type="button"
+                    className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-red-500/90 px-3 py-1 text-[10px] font-semibold text-white"
+                    onClick={() => void leaveRoomSelf()}
+                  >
+                    Напусни
+                  </button>
+                ) : null}
               </article>
             ))}
             {(conv?.joinRequests || [])
@@ -753,7 +930,16 @@ function RoomInner() {
               .map((req) => (
                 <article
                   key={req.id}
-                  className="relative flex min-h-[180px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-sky-300/40 bg-sky-500/10 p-3"
+                  className="relative flex min-h-[180px] cursor-context-menu flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-sky-300/40 bg-sky-500/10 p-3"
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    if (isGuest) return
+                    setMemberMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      memberId: req.subscriberId,
+                    })
+                  }}
                 >
                   <p className="text-sm font-semibold text-white">{req.name}</p>
                   <p className="mt-1 text-[11px] text-sky-100/80">
@@ -761,6 +947,11 @@ function RoomInner() {
                       ? 'иска да влезе'
                       : 'поканен · чака да влезе'}
                   </p>
+                  {!isGuest ? (
+                    <p className="mt-2 text-[10px] text-white/45">
+                      десен бутон · отмени
+                    </p>
+                  ) : null}
                 </article>
               ))}
           </div>
@@ -915,14 +1106,38 @@ function RoomInner() {
             >
               Филтри / HD
             </button>
-            <button
-              type="button"
-              onClick={() => void (isGuest ? leaveAsGuest() : endAsHost())}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-red-500 px-3 py-2 text-xs font-semibold text-white"
-            >
-              <PhoneOff className="h-3.5 w-3.5" />
-              {isGuest ? 'Leave' : 'End · kick guests'}
-            </button>
+            {isGuest ? (
+              <button
+                type="button"
+                onClick={() => void leaveRoomSelf()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-red-500 px-3 py-2 text-xs font-semibold text-white"
+                title="Напусни стаята"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Напусни
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => router.push('/dashboard')}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold text-white ring-1 ring-white/15"
+                  title="Излез без да приключваш сесията"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Напусни
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void endAsHost()}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-red-500 px-3 py-2 text-xs font-semibold text-white"
+                  title="Приключи и изгони всички"
+                >
+                  <PhoneOff className="h-3.5 w-3.5" />
+                  Приключи
+                </button>
+              </>
+            )}
 
             {filtersOpen ? (
               <div className="absolute bottom-full left-1/2 z-20 mb-2 w-[min(92vw,420px)] -translate-x-1/2 space-y-3 rounded-2xl border border-white/15 bg-[#0d121c] p-3 shadow-2xl">
@@ -982,6 +1197,16 @@ function RoomInner() {
           {peopleToast}
         </div>
       ) : null}
+
+      <ContextMenu
+        open={Boolean(memberMenu)}
+        x={memberMenu?.x || 0}
+        y={memberMenu?.y || 0}
+        items={
+          memberMenu ? memberContextItems(memberMenu.memberId) : []
+        }
+        onClose={() => setMemberMenu(null)}
+      />
 
       <VirtualRoomSelector
         open={studioOpen}

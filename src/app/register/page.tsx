@@ -43,13 +43,12 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [plan, setPlan] = useState<PlanId>('free')
-  const [asAdmin, setAsAdmin] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const backend = isClientBackendEnabled()
 
   function finish(user: OmniUser) {
-    const admin = asAdmin || isAdminUser(user)
+    const admin = isAdminUser(user)
     const next = {
       ...user,
       password: '',
@@ -262,18 +261,6 @@ export default function RegisterPage() {
                 />
               </div>
             </label>
-            <label className="flex items-start gap-2 rounded-xl bg-[var(--chip)] px-3 py-2 text-xs text-[var(--muted)]">
-              <input
-                type="checkbox"
-                checked={asAdmin}
-                onChange={(e) => setAsAdmin(e.target.checked)}
-                className="mt-0.5"
-              />
-              <span>
-                Аз съм админ/собственик — пълен достъп до всички режими безплатно
-                (или влез с admin имейл, напр. aiassistantbox@gmail.com).
-              </span>
-            </label>
             {error ? (
               <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-500">
                 {error}
@@ -282,7 +269,7 @@ export default function RegisterPage() {
             <button type="submit" className="ov-btn-primary w-full" disabled={busy}>
               {busy
                 ? '…'
-                : asAdmin || plan === 'free'
+                : plan === 'free'
                   ? 'Създай акаунт'
                   : 'Продължи към плащане'}
             </button>

@@ -24,12 +24,12 @@ export default function LoginPage() {
   const backend = isClientBackendEnabled()
 
   function enter(user: OmniUser) {
+    const admin = isAdminUser(user)
     const next = {
       ...user,
       password: '',
-      isAdmin: user.isAdmin || isAdminUser(user),
-      planPaid:
-        user.isAdmin || isAdminUser(user) ? true : user.planPaid,
+      isAdmin: admin,
+      planPaid: admin ? true : user.planPaid,
     }
     updatePrefs({ user: next })
     if (needsCheckout(next)) {

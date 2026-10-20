@@ -10,8 +10,8 @@ export const ADMIN_EMAILS = [
 ]
 
 export function isAdminUser(user: OmniUser | null | undefined): boolean {
-  if (!user) return false
-  if (user.isAdmin) return true
+  if (!user?.email) return false
+  // Only the email list matters — never trust a client-set isAdmin flag.
   const email = user.email.trim().toLowerCase()
   return ADMIN_EMAILS.some((item) => item.toLowerCase() === email)
 }

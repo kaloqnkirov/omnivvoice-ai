@@ -116,6 +116,13 @@ export default function DashboardPage() {
   const [memoriesOpen, setMemoriesOpen] = useState(false)
   const [spotlightOpen, setSpotlightOpen] = useState(false)
   const [friendshipId, setFriendshipId] = useState<string | null>(null)
+  const [dealComposerOpen, setDealComposerOpen] = useState(false)
+  const [dealDraft, setDealDraft] = useState({
+    title: 'Нова сделка',
+    value: '€2,400',
+    stage: 'Discovery',
+  })
+  const [storyViewerId, setStoryViewerId] = useState<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{
     x: number
     y: number
@@ -285,6 +292,63 @@ export default function DashboardPage() {
 
   function patchSnap(patch: Partial<typeof snap>) {
     updatePrefs({ snapPlus: { ...snap, ...patch } })
+  }
+
+  const liveOnAir = prefs.presence === 'in_studio' || prefs.presence === 'in_call'
+
+  function toggleLiveOnAir() {
+    if (!user || !activeId) return
+    if (liveOnAir) {
+      updatePrefs({ presence: 'online' })
+      if (active) {
+        appendMessage({ text: '⚫ OFF AIR — предаването приключи' })
+      }
+      showDragToast('OFF AIR')
+      return
+    }
+    const story = createStory({
+      type: 'text',
+      text: '🔴 ON AIR · на живо в OmniVoice',
+      audience: 'public',
+    })
+    const social = prefs.profileSocial || {
+      moodId: 'focused' as const,
+      bio: '',
+      locationLabel: '',
+      streakDays: 0,
+      stories: [] as ReturnType<typeof createStory>[],
+      showOnMap: true,
+      publicProfile: true,
+    }
+    updatePrefs({
+      presence: 'in_studio',
+      profileSocial: {
+        ...social,
+        stories: [story, ...social.stories],
+        streakDays: Math.max(social.streakDays, 1),
+      },
+    })
+    setMyStories(activeStories([story, ...social.stories]))
+    if (active) {
+      appendMessage({ text: '🔴 ON AIR — предавам на живо' })
+      patchConversation(active.id, { sessionOpen: true })
+    }
+    showDragToast('ON AIR · влизаш в стаята')
+    router.push(`/room/${activeId}?video=1`)
+  }
+
+  function submitDealFromStory() {
+    if (!active) return
+    const title = dealDraft.title.trim() || 'Нова сделка'
+    const value = dealDraft.value.trim() || '—'
+    const stage = dealDraft.stage.trim() || 'Discovery'
+    appendMessage({
+      text: `💼 Сделка: ${title} · ${value} · ${stage}`,
+      kind: 'deal',
+      deal: { title, value, stage },
+    })
+    setDealComposerOpen(false)
+    showDragToast('Сделката е добавена в чата')
   }
 
   function reactToMessage(messageId: string, emoji: string) {
@@ -1856,7 +1920,8 @@ export default function DashboardPage() {
                     key={story.id}
                     type="button"
                     className="flex shrink-0 flex-col items-center gap-1"
-                    onClick={() => setProfileOpen(true)}
+                    onClick={() => setStoryViewerId(story.id)}
+                    title="Гледай story"
                   >
                     <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full ring-2 ring-amber-400">
                       {story.type === 'image' && story.imageDataUrl ? (
@@ -1875,6 +1940,52 @@ export default function DashboardPage() {
                     <span className="text-[10px] text-[var(--muted)]">24ч</span>
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="flex shrink-0 flex-col items-center gap-1"
+                  onClick={() => void toggleLiveOnAir()}
+                  title={
+                    liveOnAir
+                      ? 'Спри ON AIR'
+                      : 'Стартирай Live · ON AIR + влез в стаята'
+                  }
+                >
+                  <span
+                    className={`relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-rose-400 to-orange-500 text-xs font-bold text-white ${
+                      liveOnAir
+                        ? 'ring-2 ring-rose-400 ring-offset-2 ring-offset-[var(--background)]'
+                        : ''
+                    }`}
+                  >
+                    L
+                    {liveOnAir ? (
+                      <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 rounded-full bg-rose-500 px-1 text-[8px] font-bold">
+                        LIVE
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-[10px] text-[var(--muted)]">
+                    {liveOnAir ? 'ON AIR' : 'Live'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="flex shrink-0 flex-col items-center gap-1"
+                  onClick={() => {
+                    if (!(user.plan === 'business' || user.plan === 'podcast' || admin)) {
+                      showDragToast('CRM сделки · Business / Podcast')
+                      router.push('/checkout?plan=business')
+                      return
+                    }
+                    setDealComposerOpen(true)
+                  }}
+                  title="Добави CRM сделка в чата"
+                >
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-yellow-600 text-xs font-bold text-white">
+                    D
+                  </span>
+                  <span className="text-[10px] text-[var(--muted)]">CRM</span>
+                </button>
               </div>
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -1946,6 +2057,128 @@ export default function DashboardPage() {
           {dragToast}
         </div>
       ) : null}
+
+      {dealComposerOpen ? (
+        <div className="fixed inset-0 z-[88] flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm">
+          <div className="ov-panel w-full max-w-md rounded-3xl p-5">
+            <p className="text-sm font-semibold">CRM · нова сделка</p>
+            <p className="mt-1 text-[11px] text-[var(--muted)]">
+              Добавя се като deal карта в текущия чат
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs">
+                <span className="mb-1 block text-[var(--muted)]">Заглавие</span>
+                <input
+                  className="ov-field"
+                  value={dealDraft.title}
+                  onChange={(e) =>
+                    setDealDraft((d) => ({ ...d, title: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block text-[var(--muted)]">Стойност</span>
+                <input
+                  className="ov-field"
+                  value={dealDraft.value}
+                  onChange={(e) =>
+                    setDealDraft((d) => ({ ...d, value: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block text-[var(--muted)]">Етап</span>
+                <select
+                  className="ov-field"
+                  value={dealDraft.stage}
+                  onChange={(e) =>
+                    setDealDraft((d) => ({ ...d, stage: e.target.value }))
+                  }
+                >
+                  <option value="Discovery">Discovery</option>
+                  <option value="Proposal">Proposal</option>
+                  <option value="Negotiation">Negotiation</option>
+                  <option value="Won">Won</option>
+                  <option value="Lost">Lost</option>
+                </select>
+              </label>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                className="ov-btn-ghost flex-1 justify-center"
+                onClick={() => setDealComposerOpen(false)}
+              >
+                Отказ
+              </button>
+              <button
+                type="button"
+                className="ov-btn-primary flex-1 justify-center"
+                onClick={submitDealFromStory}
+              >
+                Добави в чата
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {storyViewerId
+        ? (() => {
+            const story = myStories.find((s) => s.id === storyViewerId)
+            if (!story) return null
+            return (
+              <div
+                className="fixed inset-0 z-[89] flex items-center justify-center bg-black/80 px-4"
+                onClick={() => setStoryViewerId(null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setStoryViewerId(null)
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div
+                  className="w-full max-w-sm overflow-hidden rounded-3xl bg-[#111] shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between px-4 py-3 text-white">
+                    <p className="text-sm font-semibold">{user.displayName}</p>
+                    <button
+                      type="button"
+                      className="text-xs text-white/70"
+                      onClick={() => setStoryViewerId(null)}
+                    >
+                      Затвори
+                    </button>
+                  </div>
+                  <div className="flex min-h-[420px] items-center justify-center bg-gradient-to-br from-indigo-600 to-fuchsia-700 p-6">
+                    {story.type === 'image' && story.imageDataUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={story.imageDataUrl}
+                        alt=""
+                        className="max-h-[380px] w-full rounded-xl object-contain"
+                      />
+                    ) : (
+                      <p className="text-center text-lg font-semibold text-white">
+                        {story.text || 'Story'}
+                      </p>
+                    )}
+                  </div>
+                  <p className="px-4 py-3 text-[11px] text-white/60">
+                    Изтича{' '}
+                    {new Date(story.expiresAt).toLocaleString('bg-BG', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      day: '2-digit',
+                      month: 'short',
+                    })}
+                  </p>
+                </div>
+              </div>
+            )
+          })()
+        : null}
 
       <CreateRoomWizard
         open={createRoomOpen}

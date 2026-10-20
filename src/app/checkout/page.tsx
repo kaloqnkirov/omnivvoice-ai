@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useState } from 'react'
 import { CreditCard, Waves } from 'lucide-react'
-import { isAdminUser } from '@/lib/access'
+import { isAdminUser, withUnlockedPlan } from '@/lib/access'
 import { isClientBackendEnabled } from '@/lib/auth-client'
 import { PLANS, type PlanId } from '@/lib/languages'
 import { useTheme } from '@/lib/theme'
@@ -59,7 +59,11 @@ function CheckoutInner() {
     }
     if (isAdminUser(prefs.user)) {
       updatePrefs({
-        user: { ...prefs.user, plan, planPaid: true, isAdmin: true },
+        user: withUnlockedPlan(
+          { ...prefs.user, isAdmin: true },
+          plan,
+          true
+        ),
       })
       router.push('/dashboard')
       return
@@ -69,11 +73,7 @@ function CheckoutInner() {
       return
     }
     updatePrefs({
-      user: {
-        ...prefs.user,
-        plan,
-        planPaid: true,
-      },
+      user: withUnlockedPlan(prefs.user, plan, true),
     })
     router.push('/dashboard')
   }

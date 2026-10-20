@@ -44,6 +44,8 @@ export type OmniUser = {
   company: string
   plan: PlanId
   planPaid: boolean
+  /** Plans the user has unlocked (can switch among these in the menu) */
+  unlockedPlans?: PlanId[]
   /** Platform owner — everything free, all modes unlocked */
   isAdmin: boolean
   authProvider: AuthProvider
@@ -647,6 +649,15 @@ export function loadPreferences(): AppPreferences {
             typeof parsed.user.planPaid === 'boolean'
               ? parsed.user.planPaid
               : parsed.user.plan === 'free',
+          unlockedPlans: Array.isArray(
+            (parsed.user as OmniUser).unlockedPlans
+          )
+            ? (parsed.user as OmniUser).unlockedPlans
+            : parsed.user.plan === 'free'
+              ? (['free'] as PlanId[])
+              : parsed.user.planPaid
+                ? (['free', parsed.user.plan] as PlanId[])
+                : (['free'] as PlanId[]),
           isAdmin: Boolean(parsed.user.isAdmin),
           authProvider: parsed.user.authProvider || ('email' as AuthProvider),
         }

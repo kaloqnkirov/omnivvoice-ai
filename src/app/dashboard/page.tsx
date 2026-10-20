@@ -56,7 +56,14 @@ import type {
   InviteLink,
   JoinRequest,
 } from '@/lib/auth-types'
-import { hasFullAccess, isAdminUser, needsCheckout } from '@/lib/access'
+import {
+  getUnlockedPlans,
+  hasFullAccess,
+  isAdminUser,
+  needsCheckout,
+  withUnlockedPlan,
+} from '@/lib/access'
+import { PLANS, type PlanId } from '@/lib/languages'
 import {
   fetchBackendUser,
   isClientBackendEnabled,
@@ -92,6 +99,9 @@ export default function DashboardPage() {
   const [draft, setDraft] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<
+    'account' | 'room' | 'music' | 'chat' | 'podcast'
+  >('account')
   const [importOpen, setImportOpen] = useState(false)
   const [inviteCopied, setInviteCopied] = useState(false)
   const [tab, setTab] = useState<'chats' | 'subscribers' | 'blocked'>('chats')
@@ -1092,7 +1102,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-[var(--background)] text-[var(--foreground)]">
+    <div className="flex h-dvh flex-col bg-transparent text-[var(--foreground)]">
       <header className="flex items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3">
         <div className="flex items-center gap-3">
           <button
@@ -1182,12 +1192,62 @@ export default function DashboardPage() {
             Меню <ChevronDown className="h-3.5 w-3.5" />
           </button>
           {menuOpen ? (
-            <div className="ov-panel absolute right-0 top-12 z-40 w-64 rounded-2xl p-2 shadow-2xl">
+            <div className="ov-panel absolute right-0 top-12 z-40 w-72 rounded-2xl p-2 shadow-2xl">
+              <div className="mb-2 rounded-xl bg-[var(--chip)] px-2.5 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Режим / план
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {(['free', 'business', 'podcast'] as PlanId[]).map((planId) => {
+                    const unlocked = getUnlockedPlans(user).includes(planId)
+                    const active = user.plan === planId
+                    return (
+                      <button
+                        key={planId}
+                        type="button"
+                        disabled={!unlocked}
+                        title={
+                          unlocked
+                            ? `Превключи към ${PLANS[planId].label}`
+                            : 'Плати за този план, за да го отключиш'
+                        }
+                        onClick={() => {
+                          if (!unlocked) {
+                            router.push(`/checkout?plan=${planId}`)
+                            setMenuOpen(false)
+                            return
+                          }
+                          updatePrefs({
+                            user: withUnlockedPlan(user, planId, true),
+                          })
+                          showDragToast(`Режим: ${PLANS[planId].label}`)
+                          setMenuOpen(false)
+                        }}
+                        className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                          active
+                            ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
+                            : unlocked
+                              ? 'bg-[var(--panel)] text-[var(--foreground)] ring-1 ring-[var(--panel-border)]'
+                              : 'cursor-not-allowed opacity-40'
+                        }`}
+                      >
+                        {planId === 'free'
+                          ? 'Normal'
+                          : planId === 'business'
+                            ? 'Business'
+                            : 'Podcast'}
+                        {!unlocked ? ' 🔒' : ''}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
               <MenuItem
                 icon={Headphones}
                 label="Настройки на стая"
                 onClick={() => {
                   setMenuOpen(false)
+                  setSettingsTab('room')
                   setSettingsOpen(true)
                 }}
               />
@@ -1196,6 +1256,7 @@ export default function DashboardPage() {
                 label="Звук / музика"
                 onClick={() => {
                   setMenuOpen(false)
+                  setSettingsTab('music')
                   setSettingsOpen(true)
                 }}
               />
@@ -1244,6 +1305,7 @@ export default function DashboardPage() {
                 label="Всички фини настройки"
                 onClick={() => {
                   setMenuOpen(false)
+                  setSettingsTab('account')
                   setSettingsOpen(true)
                 }}
               />
@@ -1856,6 +1918,7 @@ export default function DashboardPage() {
       />
       <SettingsPanel
         open={settingsOpen}
+        initialTab={settingsTab}
         onClose={() => setSettingsOpen(false)}
         onOpenRegister={() => router.push('/register')}
       />
@@ -1873,7 +1936,10 @@ export default function DashboardPage() {
           })
         }
         onPresenceChange={(presence) => updatePrefs({ presence })}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsTab('account')
+          setSettingsOpen(true)
+        }}
       />
       <ContextMenu
         open={Boolean(ctxMenu)}

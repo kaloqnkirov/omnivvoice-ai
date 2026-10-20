@@ -52,7 +52,16 @@ export default function AppearancePanel({
                   <button
                     key={theme.id}
                     type="button"
-                    onClick={() => onChange({ theme: theme.id as ThemeId })}
+                    onClick={() =>
+                      onChange({
+                        theme: theme.id as ThemeId,
+                        ...(appearance.wallpaperId === 'none' &&
+                        !appearance.customWallpaper &&
+                        theme.wallpaperId
+                          ? { wallpaperId: theme.wallpaperId }
+                          : {}),
+                      })
+                    }
                     className={`overflow-hidden rounded-2xl border text-left ${
                       active
                         ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/40'

@@ -73,6 +73,8 @@ type SettingsPanelProps = {
   open: boolean
   onClose: () => void
   onOpenRegister: () => void
+  /** Open on a specific tab (e.g. room vs full fine-tuning) */
+  initialTab?: Tab
 }
 
 const TABS: Array<[Tab, string]> = [
@@ -97,10 +99,15 @@ export default function SettingsPanel({
   open,
   onClose,
   onOpenRegister,
+  initialTab = 'account',
 }: SettingsPanelProps) {
   const { theme, toggleTheme, prefs, updatePrefs, setAppearance, appearance } =
     useTheme()
-  const [tab, setTab] = useState<Tab>('account')
+  const [tab, setTab] = useState<Tab>(initialTab)
+
+  useEffect(() => {
+    if (open) setTab(initialTab)
+  }, [open, initialTab])
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [newSubName, setNewSubName] = useState('')
   const [newSubContact, setNewSubContact] = useState('')
@@ -288,12 +295,26 @@ export default function SettingsPanel({
       <aside className="ov-panel flex h-full w-full max-w-xl flex-col border-l border-[var(--panel-border)] shadow-2xl">
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] px-5 py-4">
           <div>
-            <p className="ov-kicker">Control center</p>
+            <p className="ov-kicker">
+              {initialTab === 'room'
+                ? 'Room setup'
+                : initialTab === 'music'
+                  ? 'Audio'
+                  : 'Control center'}
+            </p>
             <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-              Всички фини настройки
+              {initialTab === 'room'
+                ? 'Настройки на стая'
+                : initialTab === 'music'
+                  ? 'Звук и музика'
+                  : 'Всички фини настройки'}
             </h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Сайтове · Стая · Чат · Подкаст · {connectedCount} платформи
+              {initialTab === 'room'
+                ? 'Камера · микрофон · гости · качество'
+                : initialTab === 'music'
+                  ? 'Амбиент писти и аудио предпочитания'
+                  : `Сайтове · Стая · Чат · Подкаст · ${connectedCount} платформи`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -600,7 +621,11 @@ export default function SettingsPanel({
 
           {tab === 'room' && (
             <div className="space-y-3">
-              <SectionTitle icon={Headphones} title="Стая — фини настройки" />
+              <SectionTitle icon={Headphones} title="Настройки на стая" />
+              <p className="text-xs text-[var(--muted)]">
+                Име, камера, звук, качество и правила за гости в живата стая.
+                За акаунт, чат, подкаст и теми ползвай „Всички фини настройки“.
+              </p>
               <Field label="Име на стаята">
                 <input
                   className="ov-field"

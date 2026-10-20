@@ -49,7 +49,7 @@ function applyDocumentTheme(theme: ThemeId, appearance: AppearanceSettings) {
   body.style.setProperty('--wallpaper-dim', String(appearance.wallpaperDim))
   body.style.setProperty(
     '--wallpaper-blur',
-    appearance.wallpaperBlur ? '2px' : '0px'
+    appearance.wallpaperBlur ? '3px' : '0px'
   )
 }
 
@@ -98,13 +98,31 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setAppearance = useCallback(
     (patch: Partial<AppearanceSettings>) => {
-      const appearance = { ...prefs.appearance, ...patch }
-      updatePrefs({
-        appearance,
-        theme: appearance.theme,
+      setPrefs((current) => {
+        let appearance = { ...current.appearance, ...patch }
+        // When switching theme, auto-pick a matching wallpaper if user has none
+        if (
+          patch.theme &&
+          patch.theme !== current.appearance.theme &&
+          !patch.wallpaperId &&
+          !patch.customWallpaper &&
+          (appearance.wallpaperId === 'none' || !appearance.wallpaperId) &&
+          !appearance.customWallpaper
+        ) {
+          const suggested = getThemeOption(patch.theme).wallpaperId
+          if (suggested) {
+            appearance = { ...appearance, wallpaperId: suggested }
+          }
+        }
+        const next = {
+          ...current,
+          appearance,
+          theme: appearance.theme,
+        }
+        return next
       })
     },
-    [prefs.appearance, updatePrefs]
+    []
   )
 
   const toggleTheme = useCallback(() => {

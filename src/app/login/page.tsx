@@ -10,7 +10,7 @@ import {
   signInEmail,
   signInOAuth,
 } from '@/lib/auth-client'
-import { isAdminUser, needsCheckout } from '@/lib/access'
+import { isAdminUser, needsCheckout, withUnlockedPlan } from '@/lib/access'
 import { useTheme } from '@/lib/theme'
 import { createUserId, type OmniUser } from '@/lib/user-store'
 
@@ -25,11 +25,16 @@ export default function LoginPage() {
 
   function enter(user: OmniUser) {
     const admin = isAdminUser(user)
-    const next = {
+    let next = {
       ...user,
       password: '',
       isAdmin: admin,
       planPaid: admin ? true : user.planPaid,
+    }
+    if (admin) {
+      next = withUnlockedPlan(next, next.plan || 'podcast', true)
+    } else if (next.planPaid && next.plan !== 'free') {
+      next = withUnlockedPlan(next, next.plan, true)
     }
     updatePrefs({ user: next })
     if (needsCheckout(next)) {

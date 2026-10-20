@@ -14,6 +14,8 @@ export type ThemeOption = {
   labelBg: string
   swatch: string
   isDark: boolean
+  /** Suggested wallpaper preset when picking this theme */
+  wallpaperId?: string
 }
 
 export const THEME_OPTIONS: ThemeOption[] = [
@@ -21,57 +23,65 @@ export const THEME_OPTIONS: ThemeOption[] = [
     id: 'light',
     label: 'Light',
     labelBg: 'Светла',
-    swatch: 'linear-gradient(135deg,#f4f7f4,#0f8f75)',
+    swatch: 'linear-gradient(135deg,#f4f7f4 40%,#c8ebe0,#0f8f75)',
     isDark: false,
+    wallpaperId: 'none',
   },
   {
     id: 'dark',
     label: 'Dark',
     labelBg: 'Тъмна',
-    swatch: 'linear-gradient(135deg,#07110e,#2dd4a8)',
+    swatch: 'linear-gradient(135deg,#07110e,#1a3d32,#2dd4a8)',
     isDark: true,
+    wallpaperId: 'studio-dark',
   },
   {
     id: 'midnight',
     label: 'Midnight',
     labelBg: 'Полунощ',
-    swatch: 'linear-gradient(135deg,#0b1020,#6366f1)',
+    swatch: 'linear-gradient(135deg,#0b1020 30%,#1e1b4b,#6366f1,#fbbf24)',
     isDark: true,
+    wallpaperId: 'city-night',
   },
   {
     id: 'ocean',
     label: 'Ocean',
     labelBg: 'Океан',
-    swatch: 'linear-gradient(135deg,#06263a,#22d3ee)',
-    isDark: true,
+    swatch: 'linear-gradient(160deg,#e0f7fa 10%,#0891b2 45%,#042f4a)',
+    isDark: false,
+    wallpaperId: 'ocean-wave',
   },
   {
     id: 'sunset',
     label: 'Sunset',
     labelBg: 'Залез',
-    swatch: 'linear-gradient(135deg,#2a1210,#fb923c)',
-    isDark: true,
+    swatch: 'linear-gradient(135deg,#fff7ed,#fdba74,#fb7185,#7c2d12)',
+    isDark: false,
+    wallpaperId: 'warm-abstract',
   },
   {
     id: 'forest',
     label: 'Forest',
     labelBg: 'Гора',
-    swatch: 'linear-gradient(135deg,#102417,#86efac)',
-    isDark: true,
+    swatch: 'linear-gradient(160deg,#ecfdf5,#86efac 35%,#166534 70%,#052e16)',
+    isDark: false,
+    wallpaperId: 'forest-mist',
   },
   {
     id: 'aurora',
     label: 'Aurora',
     labelBg: 'Аврора',
-    swatch: 'linear-gradient(135deg,#0f172a,#34d399 40%,#38bdf8)',
+    swatch: 'linear-gradient(120deg,#0f172a,#34d399 35%,#38bdf8 60%,#a78bfa)',
     isDark: true,
+    wallpaperId: 'soft-mesh',
   },
   {
     id: 'carbon',
     label: 'Carbon',
     labelBg: 'Карбон',
-    swatch: 'linear-gradient(135deg,#111111,#a3a3a3)',
+    swatch: 'linear-gradient(135deg,#0a0a0a,#404040 40%,#d4d4d4,#111)',
     isDark: true,
+    wallpaperId: 'studio-dark',
   },
 ]
 
@@ -150,7 +160,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   theme: 'dark',
   wallpaperId: 'none',
   customWallpaper: null,
-  wallpaperDim: 0.55,
+  wallpaperDim: 0.45,
   wallpaperBlur: true,
 }
 

@@ -14,6 +14,7 @@ export type AuthUser = {
   nativeLanguage: string
   plan: PlanId
   planPaid: boolean
+  unlockedPlans?: PlanId[]
   isAdmin: boolean
   authProvider: AuthProvider
   company: string

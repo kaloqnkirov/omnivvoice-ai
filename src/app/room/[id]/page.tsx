@@ -12,13 +12,13 @@ import {
   MicOff,
   PhoneOff,
   Settings2,
-  Smile,
   Sparkles,
   Subtitles,
   Video,
 } from 'lucide-react'
-import EmojiPicker from '@/components/EmojiPicker'
+import ChatComposer from '@/components/ChatComposer'
 import LiveKitStage from '@/components/LiveKitStage'
+import RichMessageBubble from '@/components/RichMessageBubble'
 import SettingsPanel from '@/components/SettingsPanel'
 import VirtualRoomSelector from '@/components/VirtualRoomSelector'
 import { isClientBackendEnabled } from '@/lib/auth-client'
@@ -76,10 +76,32 @@ function RoomInner() {
   const [subtitlesOn, setSubtitlesOn] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [studioOpen, setStudioOpen] = useState(false)
-  const [emojiOpen, setEmojiOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [screenShare, setScreenShare] = useState(false)
   const [kicked, setKicked] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
+  const [replyPreview, setReplyPreview] = useState<string | null>(null)
+  const [localRich, setLocalRich] = useState<
+    Array<{
+      id: string
+      fromMe: boolean
+      text: string
+      createdAt: string
+      kind?: 'gif' | 'sticker' | 'image' | 'voice' | 'poll' | 'deal' | 'clip'
+      mediaUrl?: string
+      caption?: string
+      voiceDurationSec?: number
+      poll?: {
+        question: string
+        options: { id: string; label: string; votes: number }[]
+        votedOptionId?: string
+      }
+      deal?: { title: string; value: string; stage: string }
+      clip?: { label: string; atSec: number }
+      replyPreview?: string
+      reactions?: Record<string, number>
+    }>
+  >([])
 
   const {
     listening,
@@ -238,13 +260,45 @@ function RoomInner() {
     router.push('/')
   }
 
-  async function sendChat() {
-    const text = chatDraft.trim()
-    if (!text) return
+  async function sendRichChat(partial: {
+    text: string
+    kind?: 'gif' | 'sticker' | 'image' | 'voice' | 'poll' | 'deal' | 'clip'
+    mediaUrl?: string
+    caption?: string
+    voiceDurationSec?: number
+    poll?: {
+      question: string
+      options: { id: string; label: string; votes: number }[]
+      votedOptionId?: string
+    }
+    deal?: { title: string; value: string; stage: string }
+    clip?: { label: string; atSec: number }
+    replyPreview?: string
+  }) {
+    const text = partial.text.trim()
+    if (!text && !partial.mediaUrl && !partial.poll) return
+    setReplyPreview(null)
+    setChatDraft('')
+
     if (useBackendRoom) {
-      setChatDraft('')
+      // Persist text (+ media caption) to backend; keep rich preview locally
+      const richId = `local_${Date.now()}`
+      setLocalRich((prev) => [
+        ...prev,
+        {
+          id: richId,
+          fromMe: true,
+          createdAt: new Date().toISOString(),
+          ...partial,
+          text,
+        },
+      ])
       await sendMessage({
-        text,
+        text: partial.caption
+          ? `${text} · ${partial.caption}`
+          : partial.kind
+            ? `[${partial.kind}] ${text}`
+            : text,
         guestId: guest?.guestId,
         guestName: guest?.displayName,
       })
@@ -254,11 +308,11 @@ function RoomInner() {
     const msg = {
       id: `m_${Date.now()}`,
       fromMe: !isGuest,
-      text,
       createdAt: new Date().toISOString(),
       status: 'sent' as const,
+      ...partial,
+      text,
     }
-    setChatDraft('')
     patchConv({
       messages: [...(conv.messages || []), msg],
       lastMessage: text,
@@ -376,6 +430,7 @@ function RoomInner() {
             guestId={guest?.guestId}
             micOn={micOn}
             cameraOn={cameraOn}
+            screenShare={screenShare}
             studioRoomId={prefs.room.studioRoomId}
             customBackground={prefs.room.customBackground}
             videoFilter={prefs.room.videoFilter}
@@ -425,55 +480,86 @@ function RoomInner() {
         )}
 
         <div className="relative rounded-2xl border border-white/10 bg-black/40 p-3">
-          <div className="mb-2 max-h-32 space-y-1 overflow-y-auto text-xs text-white/90">
+          <div className="mb-2 max-h-40 space-y-2 overflow-y-auto">
             {useBackendRoom
-              ? remoteMessages.slice(-30).map((msg) => (
-                  <p key={msg.id}>
-                    <span className="text-white/50">{msg.sender_name}: </span>
-                    {msg.body}
-                  </p>
+              ? [
+                  ...remoteMessages.slice(-20).map((msg) => ({
+                    id: msg.id,
+                    fromMe: msg.sender_name === youName,
+                    text: msg.body,
+                    createdAt: msg.created_at || new Date().toISOString(),
+                  })),
+                  ...localRich.filter((m) => m.kind),
+                ].map((msg) => (
+                  <RichMessageBubble
+                    key={msg.id}
+                    msg={msg}
+                    enableReactions
+                    onReply={(_id, preview) => setReplyPreview(preview)}
+                    onReact={(messageId, emoji) => {
+                      setLocalRich((prev) =>
+                        prev.map((m) => {
+                          if (m.id !== messageId) return m
+                          const reactions = { ...(m.reactions || {}) }
+                          reactions[emoji] = (reactions[emoji] || 0) + 1
+                          return { ...m, reactions }
+                        })
+                      )
+                    }}
+                  />
                 ))
               : localMessages.slice(-30).map((msg) => (
-                  <p key={msg.id}>
-                    <span className="text-white/50">
-                      {msg.fromMe ? youName : 'Участник'}:{' '}
-                    </span>
-                    {msg.text}
-                  </p>
+                  <RichMessageBubble
+                    key={msg.id}
+                    msg={msg}
+                    enableReactions
+                    onReply={(_id, preview) => setReplyPreview(preview)}
+                    onReact={(messageId, emoji) => {
+                      if (!conv) return
+                      patchConv({
+                        messages: conv.messages.map((m) => {
+                          if (m.id !== messageId) return m
+                          const reactions = { ...(m.reactions || {}) }
+                          reactions[emoji] = (reactions[emoji] || 0) + 1
+                          return { ...m, reactions }
+                        }),
+                      })
+                    }}
+                    onVote={(messageId, optionId) => {
+                      if (!conv) return
+                      patchConv({
+                        messages: conv.messages.map((m) => {
+                          if (m.id !== messageId || !m.poll || m.poll.votedOptionId)
+                            return m
+                          return {
+                            ...m,
+                            poll: {
+                              ...m.poll,
+                              votedOptionId: optionId,
+                              options: m.poll.options.map((o) =>
+                                o.id === optionId
+                                  ? { ...o, votes: o.votes + 1 }
+                                  : o
+                              ),
+                            },
+                          }
+                        }),
+                      })
+                    }}
+                  />
                 ))}
           </div>
-          <form
-            className="flex items-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              void sendChat()
-            }}
-          >
-            <div className="relative">
-              <button
-                type="button"
-                className="ov-icon-btn !text-white"
-                title="Емоджи"
-                onClick={() => setEmojiOpen((v) => !v)}
-              >
-                <Smile className="h-4 w-4" />
-              </button>
-              <EmojiPicker
-                open={emojiOpen}
-                onClose={() => setEmojiOpen(false)}
-                onPick={(emoji) => setChatDraft((d) => `${d}${emoji}`)}
-              />
-            </div>
-            <input
-              className="ov-field flex-1 !bg-white/10 !text-white"
-              value={chatDraft}
-              onChange={(e) => setChatDraft(e.target.value)}
-              placeholder="Съобщение…"
-            />
-            <button type="submit" className="ov-btn-primary !px-3">
-              Send
-            </button>
-          </form>
+          <ChatComposer
+            draft={chatDraft}
+            onDraftChange={setChatDraft}
+            replyPreview={replyPreview}
+            onClearReply={() => setReplyPreview(null)}
+            peerLanguage={prefs.voice.targetLanguage || 'en'}
+            showDeal={!isGuest}
+            showClip={!isGuest}
+            placeholder="Съобщение, GIF, глас…"
+            onSend={(partial) => void sendRichChat(partial)}
+          />
         </div>
 
         {subtitlesOn && translationOn ? (
@@ -524,6 +610,17 @@ function RoomInner() {
               onClick={() => setStudioOpen(true)}
               icon={ImageIcon}
             />
+            <button
+              type="button"
+              onClick={() => setScreenShare((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-medium ring-1 ${
+                screenShare
+                  ? 'bg-emerald-500/30 text-white ring-emerald-300/40'
+                  : 'bg-white/10 text-white ring-white/15'
+              }`}
+            >
+              Share
+            </button>
             <button
               type="button"
               onClick={() => setFiltersOpen((v) => !v)}

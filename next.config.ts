@@ -10,6 +10,14 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "images.unsplash.com",
       },
+      {
+        protocol: "https",
+        hostname: "media.giphy.com",
+      },
+      {
+        protocol: "https",
+        hostname: "i.giphy.com",
+      },
     ],
   },
   turbopack: {

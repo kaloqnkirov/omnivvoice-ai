@@ -3,18 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
-  ImagePlus,
-  Mic,
   MoreHorizontal,
-  Paperclip,
   Phone,
   Search,
-  SendHorizontal,
-  Smile,
   Sparkles,
   Video,
 } from 'lucide-react'
-import EmojiPicker from '@/components/EmojiPicker'
+import ChatComposer from '@/components/ChatComposer'
+import RichMessageBubble, {
+  type RichMessage,
+} from '@/components/RichMessageBubble'
 import { APP_LANGUAGES, getLanguage } from '@/lib/languages'
 import { buildSmartReplies, presenceLabel } from '@/lib/smart-replies'
 import { translateText } from '@/lib/translation'
@@ -27,16 +25,6 @@ export type ChatContact = {
   presence: PresenceStatus
   avatarTone: string
   lastPreview: string
-}
-
-export type ChatMessage = {
-  id: string
-  contactId: string
-  fromMe: boolean
-  text: string
-  translatedText?: string
-  createdAt: string
-  status: 'sent' | 'delivered' | 'read'
 }
 
 const DEFAULT_CONTACTS: ChatContact[] = [
@@ -53,29 +41,22 @@ const DEFAULT_CONTACTS: ChatContact[] = [
     name: 'Alex Rivera',
     language: 'es',
     presence: 'writing',
-    avatarTone: 'from-amber-300 to-orange-600',
-    lastPreview: '¿Listos para el kickoff?',
+    avatarTone: 'from-sky-400 to-blue-700',
+    lastPreview: '¿Hablamos en 10?',
   },
   {
     id: 'c3',
     name: 'Yuki Tanaka',
     language: 'ja',
     presence: 'in_studio',
-    avatarTone: 'from-sky-300 to-blue-700',
-    lastPreview: '会議の資料を送ります',
-  },
-  {
-    id: 'c4',
-    name: 'Studio Crew',
-    language: 'en',
-    presence: 'in_call',
-    avatarTone: 'from-rose-300 to-fuchsia-700',
-    lastPreview: 'Shorts pipeline is ready',
+    avatarTone: 'from-violet-400 to-fuchsia-700',
+    lastPreview: 'Shorts pipeline ready',
   },
 ]
 
-/** Fixed timestamps — avoid Date.now() during SSR hydration */
-const SEED_MESSAGES: ChatMessage[] = [
+type InternalMessage = RichMessage & { contactId: string }
+
+const SEED_MESSAGES: InternalMessage[] = [
   {
     id: 'm1',
     contactId: 'c1',
@@ -88,7 +69,7 @@ const SEED_MESSAGES: ChatMessage[] = [
     id: 'm2',
     contactId: 'c1',
     fromMe: true,
-    text: 'Да — ще пусна превода на живо.',
+    text: 'Да — пускам превода на живо.',
     createdAt: '2026-10-19T14:02:00.000Z',
     status: 'read',
   },
@@ -96,7 +77,7 @@ const SEED_MESSAGES: ChatMessage[] = [
     id: 'm3',
     contactId: 'c2',
     fromMe: false,
-    text: 'Can we switch to Spanish subtitles?',
+    text: '¿Podemos hablar mañana?',
     createdAt: '2026-10-19T13:40:00.000Z',
     status: 'delivered',
   },
@@ -137,14 +118,14 @@ export default function MessengerChat({
 }: MessengerChatProps) {
   const [contacts, setContacts] = useState(DEFAULT_CONTACTS)
   const [activeId, setActiveId] = useState(DEFAULT_CONTACTS[0].id)
-  const [messages, setMessages] = useState<ChatMessage[]>(SEED_MESSAGES)
+  const [messages, setMessages] = useState<InternalMessage[]>(SEED_MESSAGES)
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
   const [translateLive, setTranslateLive] = useState(true)
-  const [showEmoji, setShowEmoji] = useState(false)
   const [showPhrases, setShowPhrases] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [replyPreview, setReplyPreview] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
   const active = contacts.find((c) => c.id === activeId) || contacts[0]
@@ -189,20 +170,19 @@ export default function MessengerChat({
     }
   }, [ephemeral])
 
-  async function sendMessage(raw?: string) {
-    const text = (raw ?? draft).trim()
-    if (!text || sending) return
+  async function pushOutgoing(
+    partial: Omit<RichMessage, 'id' | 'createdAt' | 'fromMe' | 'status'>
+  ) {
+    if (sending) return
     setSending(true)
     setError(null)
-    setDraft('')
-    setShowEmoji(false)
-    setShowPhrases(false)
+    setReplyPreview(null)
     onPresenceChange('writing')
 
-    let translatedText: string | undefined
-    if (translateLive) {
+    let translatedText = partial.translatedText
+    if (translateLive && partial.text && !partial.kind) {
       try {
-        translatedText = await translateText(text, peerLang.name, {
+        translatedText = await translateText(partial.text, peerLang.name, {
           emotionSafe,
           tone,
         })
@@ -215,19 +195,21 @@ export default function MessengerChat({
       }
     }
 
-    const mine: ChatMessage = {
+    const mine: InternalMessage = {
+      ...partial,
       id: `m_${Date.now()}`,
       contactId: activeId,
       fromMe: true,
-      text,
-      translatedText,
       createdAt: new Date().toISOString(),
       status: readReceipts ? 'read' : 'sent',
+      translatedText,
     }
     setMessages((prev) => [...prev, mine])
     setContacts((prev) =>
       prev.map((c) =>
-        c.id === activeId ? { ...c, lastPreview: text, presence: 'online' } : c
+        c.id === activeId
+          ? { ...c, lastPreview: partial.text, presence: 'online' }
+          : c
       )
     )
 
@@ -254,6 +236,35 @@ export default function MessengerChat({
     }, 700)
   }
 
+  function reactToMessage(messageId: string, emoji: string) {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId) return m
+        const reactions = { ...(m.reactions || {}) }
+        reactions[emoji] = (reactions[emoji] || 0) + 1
+        return { ...m, reactions }
+      })
+    )
+  }
+
+  function votePoll(messageId: string, optionId: string) {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId || !m.poll || m.poll.votedOptionId) return m
+        return {
+          ...m,
+          poll: {
+            ...m.poll,
+            votedOptionId: optionId,
+            options: m.poll.options.map((o) =>
+              o.id === optionId ? { ...o, votes: o.votes + 1 } : o
+            ),
+          },
+        }
+      })
+    )
+  }
+
   return (
     <div className="ov-panel flex min-h-[640px] overflow-hidden rounded-[32px] lg:min-h-[720px]">
       <aside className="flex w-full max-w-[300px] flex-col border-r border-[var(--panel-border)] bg-[var(--chip)]/60">
@@ -263,7 +274,7 @@ export default function MessengerChat({
             Чатове
           </h2>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Двупосочен език на контакт · smart replies · phrasebook
+            GIF · стикери · глас · анкети · превод
             {ephemeral ? ' · ephemeral' : ''}
           </p>
           <div className="ov-input-wrap mt-3">
@@ -337,16 +348,16 @@ export default function MessengerChat({
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{active.name}</p>
               <p className="text-xs text-[var(--muted)]">
-                {showPresence ? `${presenceLabel(active.presence)} · ` : ''}
-                {peerLang.nativeName} ↔ {myLang.nativeName}
+                {myLang.flag}↔{peerLang.flag}
+                {showPresence ? ` · ${presenceLabel(active.presence)}` : ''}
+                {typingIndicators ? ' · typing on' : ''}
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <select
-              className="ov-field !w-auto !py-1.5 text-xs"
+              className="ov-field !w-auto !py-1.5 text-[11px]"
               value={active.language}
-              title="Език на контакта"
               onChange={(e) =>
                 setContacts((prev) =>
                   prev.map((c) =>
@@ -387,47 +398,17 @@ export default function MessengerChat({
 
         <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
           <div className="mx-auto max-w-[85%] rounded-2xl border border-[var(--panel-border)] bg-[var(--chip)] px-3 py-2 text-center text-[11px] text-[var(--muted)]">
-            Автоматичен двупосочен превод · emotion-safe {emotionSafe ? 'ON' : 'OFF'} ·
-            тон {tone}
+            Auto-translate · GIF с двуезичен caption · deal cards · voice notes
           </div>
 
           {thread.map((msg) => (
-            <div
+            <RichMessageBubble
               key={msg.id}
-              className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${
-                  msg.fromMe
-                    ? 'rounded-br-md bg-[var(--accent)] text-[var(--accent-ink)]'
-                    : 'rounded-bl-md border border-[var(--panel-border)] bg-[var(--panel)]'
-                }`}
-              >
-                <p suppressHydrationWarning>{msg.text}</p>
-                {msg.translatedText ? (
-                  <p
-                    className={`mt-1 border-t pt-1 text-xs ${
-                      msg.fromMe
-                        ? 'border-black/10 opacity-90'
-                        : 'border-[var(--panel-border)] text-[var(--muted)]'
-                    }`}
-                    suppressHydrationWarning
-                  >
-                    <Sparkles className="mr-1 inline h-3 w-3" />
-                    {msg.translatedText}
-                  </p>
-                ) : null}
-                <p
-                  className={`mt-1 text-[10px] ${
-                    msg.fromMe ? 'opacity-70' : 'text-[var(--muted)]'
-                  }`}
-                  suppressHydrationWarning
-                >
-                  <ClientTime iso={msg.createdAt} />
-                  {msg.fromMe ? ` · ${msg.status}` : ''}
-                </p>
-              </div>
-            </div>
+              msg={msg}
+              onReact={reactToMessage}
+              onReply={(_id, preview) => setReplyPreview(preview)}
+              onVote={votePoll}
+            />
           ))}
           <div ref={endRef} />
         </div>
@@ -439,7 +420,7 @@ export default function MessengerChat({
                 key={reply}
                 type="button"
                 className="rounded-full bg-[var(--chip)] px-3 py-1 text-[11px] font-medium ring-1 ring-[var(--panel-border)] hover:bg-[var(--accent-soft)]"
-                onClick={() => void sendMessage(reply)}
+                onClick={() => void pushOutgoing({ text: reply })}
               >
                 {reply}
               </button>
@@ -475,10 +456,7 @@ export default function MessengerChat({
               <BookOpen className="h-3 w-3" />
               Phrasebook
             </button>
-            <span className="text-[11px] text-[var(--muted)]">
-              {displayName}
-              {typingIndicators ? ' · typing on' : ''}
-            </span>
+            <span className="text-[11px] text-[var(--muted)]">{displayName}</span>
           </div>
 
           {showPhrases ? (
@@ -488,7 +466,7 @@ export default function MessengerChat({
                   key={phrase.id}
                   type="button"
                   className="rounded-lg bg-[var(--panel)] px-2 py-1 text-left text-[11px] hover:ring-1 hover:ring-[var(--accent)]/40"
-                  onClick={() => void sendMessage(phrase.text)}
+                  onClick={() => void pushOutgoing({ text: phrase.text })}
                 >
                   {phrase.text}
                 </button>
@@ -496,75 +474,19 @@ export default function MessengerChat({
             </div>
           ) : null}
 
-          <div className="relative flex items-end gap-2">
-            <button type="button" className="ov-icon-btn" title="Прикачи файл">
-              <Paperclip className="h-4 w-4" />
-            </button>
-            <button type="button" className="ov-icon-btn" title="Снимка">
-              <ImagePlus className="h-4 w-4" />
-            </button>
-            <div className="relative">
-              <button
-                type="button"
-                className="ov-icon-btn"
-                title="Емоджи"
-                onClick={() => setShowEmoji((v) => !v)}
-              >
-                <Smile className="h-4 w-4" />
-              </button>
-              <EmojiPicker
-                open={showEmoji}
-                onClose={() => setShowEmoji(false)}
-                onPick={(emoji) => setDraft((d) => `${d}${emoji}`)}
-              />
-            </div>
-            <button type="button" className="ov-icon-btn" title="Гласово съобщение">
-              <Mic className="h-4 w-4" />
-            </button>
-            <textarea
-              className="ov-field max-h-28 min-h-[44px] flex-1 resize-none"
-              rows={1}
-              placeholder="Напиши съобщение…"
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value)
-                onPresenceChange('writing')
-              }}
-              onBlur={() => onPresenceChange('online')}
-              onKeyDown={(e) => {
-                if (enterToSend && e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void sendMessage()
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="ov-btn-primary !rounded-2xl !px-3"
-              onClick={() => void sendMessage()}
-              disabled={sending || !draft.trim()}
-            >
-              <SendHorizontal className="h-4 w-4" />
-            </button>
-          </div>
+          <ChatComposer
+            draft={draft}
+            onDraftChange={setDraft}
+            enterToSend={enterToSend}
+            peerLanguage={active.language}
+            replyPreview={replyPreview}
+            onClearReply={() => setReplyPreview(null)}
+            showDeal
+            showClip
+            onSend={(partial) => void pushOutgoing(partial)}
+          />
         </footer>
       </section>
     </div>
   )
-}
-
-/** Locale time only after mount — prevents SSR/client timezone mismatch */
-function ClientTime({ iso }: { iso: string }) {
-  const [label, setLabel] = useState('')
-
-  useEffect(() => {
-    setLabel(
-      new Date(iso).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    )
-  }, [iso])
-
-  return <span suppressHydrationWarning>{label}</span>
 }

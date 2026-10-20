@@ -25,6 +25,7 @@ type Props = {
   guestId?: string
   micOn: boolean
   cameraOn: boolean
+  screenShare?: boolean
   studioRoomId?: string
   customBackground?: string | null
   videoFilter?: VideoFilterId
@@ -49,6 +50,7 @@ export default function LiveKitStage({
   guestId,
   micOn,
   cameraOn,
+  screenShare = false,
   studioRoomId = 'glass-office',
   customBackground = null,
   videoFilter = 'none',
@@ -267,6 +269,15 @@ export default function LiveKitStage({
       t.enabled = cameraOn
     })
   }, [micOn, cameraOn, status, videoQuality])
+
+  useEffect(() => {
+    const room = roomRef.current
+    if (room && status === 'live') {
+      void room.localParticipant.setScreenShareEnabled(screenShare).catch(() => {
+        // user cancelled share picker
+      })
+    }
+  }, [screenShare, status])
 
   useEffect(() => {
     const host = remoteHostRef.current

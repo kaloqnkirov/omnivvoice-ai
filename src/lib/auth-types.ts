@@ -36,6 +36,21 @@ export type ConversationMessage = {
   text: string
   createdAt: string
   status: 'sent' | 'delivered' | 'read'
+  kind?: 'gif' | 'sticker' | 'image' | 'voice' | 'poll' | 'deal' | 'clip'
+  mediaUrl?: string
+  caption?: string
+  voiceDurationSec?: number
+  poll?: {
+    question: string
+    options: { id: string; label: string; votes: number }[]
+    votedOptionId?: string
+  }
+  deal?: { title: string; value: string; stage: string }
+  clip?: { label: string; atSec: number }
+  replyToId?: string
+  replyPreview?: string
+  reactions?: Record<string, number>
+  translatedText?: string
 }
 
 export type Conversation = {

@@ -16,7 +16,6 @@ import {
   Phone,
   Pin,
   Search,
-  SendHorizontal,
   Settings2,
   Sun,
   UserPlus,
@@ -25,9 +24,11 @@ import {
   Volume2,
   Waves,
 } from 'lucide-react'
+import ChatComposer from '@/components/ChatComposer'
 import ContactImportModal from '@/components/ContactImportModal'
+import RichMessageBubble from '@/components/RichMessageBubble'
 import SettingsPanel from '@/components/SettingsPanel'
-import type { Conversation, InviteLink } from '@/lib/auth-types'
+import type { Conversation, ConversationMessage, InviteLink } from '@/lib/auth-types'
 import { hasFullAccess, isAdminUser, needsCheckout } from '@/lib/access'
 import {
   fetchBackendUser,
@@ -49,6 +50,8 @@ export default function DashboardPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [inviteCopied, setInviteCopied] = useState(false)
   const [tab, setTab] = useState<'chats' | 'subscribers' | 'blocked'>('chats')
+  const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'groups'>('all')
+  const [replyPreview, setReplyPreview] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const admin = isAdminUser(user)
   const fullAccess = hasFullAccess(user)
@@ -86,13 +89,15 @@ export default function DashboardPage() {
 
   const conversations = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const list = [...prefs.conversations].sort((a, b) => {
+    let list = [...prefs.conversations].sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
       return b.updatedAt.localeCompare(a.updatedAt)
     })
+    if (inboxFilter === 'unread') list = list.filter((c) => c.unread > 0)
+    if (inboxFilter === 'groups') list = list.filter((c) => c.isGroup)
     if (!q) return list
     return list.filter((item) => item.title.toLowerCase().includes(q))
-  }, [prefs.conversations, query])
+  }, [prefs.conversations, query, inboxFilter])
 
   const active = prefs.conversations.find((item) => item.id === activeId)
   const subscribers = prefs.subscribers.filter((sub) => sub.status !== 'blocked')
@@ -105,24 +110,53 @@ export default function DashboardPage() {
     })
   }
 
-  function sendMessage() {
-    if (!active || !draft.trim()) return
-    const text = draft.trim()
-    setDraft('')
+  function appendMessage(
+    partial: Omit<ConversationMessage, 'id' | 'createdAt' | 'fromMe' | 'status'>
+  ) {
+    if (!active) return
+    const msg: ConversationMessage = {
+      id: `msg_${Date.now()}`,
+      fromMe: true,
+      createdAt: new Date().toISOString(),
+      status: 'sent',
+      ...partial,
+    }
     patchConversation(active.id, {
-      lastMessage: text,
-      updatedAt: '2026-10-19T15:00:00.000Z',
+      lastMessage: msg.text,
+      updatedAt: msg.createdAt,
       unread: 0,
-      messages: [
-        ...active.messages,
-        {
-          id: `msg_${Date.now()}`,
-          fromMe: true,
-          text,
-          createdAt: '2026-10-19T15:00:00.000Z',
-          status: 'sent',
-        },
-      ],
+      messages: [...active.messages, msg],
+    })
+  }
+
+  function reactToMessage(messageId: string, emoji: string) {
+    if (!active) return
+    patchConversation(active.id, {
+      messages: active.messages.map((m) => {
+        if (m.id !== messageId) return m
+        const reactions = { ...(m.reactions || {}) }
+        reactions[emoji] = (reactions[emoji] || 0) + 1
+        return { ...m, reactions }
+      }),
+    })
+  }
+
+  function votePoll(messageId: string, optionId: string) {
+    if (!active) return
+    patchConversation(active.id, {
+      messages: active.messages.map((m) => {
+        if (m.id !== messageId || !m.poll || m.poll.votedOptionId) return m
+        return {
+          ...m,
+          poll: {
+            ...m.poll,
+            votedOptionId: optionId,
+            options: m.poll.options.map((o) =>
+              o.id === optionId ? { ...o, votes: o.votes + 1 } : o
+            ),
+          },
+        }
+      }),
     })
   }
 
@@ -470,6 +504,30 @@ export default function DashboardPage() {
                 </button>
               ))}
             </div>
+            {tab === 'chats' ? (
+              <div className="mt-2 flex gap-1">
+                {(
+                  [
+                    ['all', 'Всички'],
+                    ['unread', 'Непрочетени'],
+                    ['groups', 'Групи'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setInboxFilter(id)}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      inboxFilter === id
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                        : 'text-[var(--muted)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="flex-1 overflow-y-auto p-2">
@@ -695,48 +753,59 @@ export default function DashboardPage() {
                 </Link>
               </div>
 
-              <div className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
-                {active.messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}
+              <div className="flex gap-2 overflow-x-auto border-b border-[var(--panel-border)] px-4 py-2">
+                {[
+                  { name: 'Ти', tone: 'from-teal-400 to-emerald-700', label: 'Story' },
+                  { name: 'Live', tone: 'from-rose-400 to-orange-500', label: 'ON AIR' },
+                  { name: 'Deal', tone: 'from-amber-400 to-yellow-600', label: 'CRM' },
+                  { name: 'Show', tone: 'from-violet-400 to-indigo-600', label: 'Clip' },
+                ].map((story) => (
+                  <button
+                    key={story.name}
+                    type="button"
+                    className="flex shrink-0 flex-col items-center gap-1"
+                    title="OmniVoice Status — като Stories, но за бизнес/подкаст"
+                    onClick={() =>
+                      appendMessage({
+                        text: `📡 Status: ${story.label}`,
+                      })
+                    }
                   >
-                    <div
-                      className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm ${
-                        msg.fromMe
-                          ? 'rounded-br-md bg-[var(--accent)] text-[var(--accent-ink)]'
-                          : 'rounded-bl-md border border-[var(--panel-border)] bg-[var(--panel)]'
-                      }`}
+                    <span
+                      className={`flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br ${story.tone} text-xs font-bold text-white ring-2 ring-[var(--accent)]/40`}
                     >
-                      <p>{msg.text}</p>
-                    </div>
-                  </div>
+                      {story.name.slice(0, 1)}
+                    </span>
+                    <span className="text-[10px] text-[var(--muted)]">{story.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+                {active.messages.map((msg) => (
+                  <RichMessageBubble
+                    key={msg.id}
+                    msg={msg}
+                    enableReactions={prefs.chat.reactions}
+                    onReact={reactToMessage}
+                    onReply={(_id, preview) => setReplyPreview(preview)}
+                    onVote={votePoll}
+                  />
                 ))}
               </div>
 
               <footer className="border-t border-[var(--panel-border)] p-3">
-                <div className="flex items-end gap-2">
-                  <textarea
-                    className="ov-field max-h-28 min-h-[44px] flex-1 resize-none"
-                    rows={1}
-                    placeholder="Напиши съобщение…"
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        sendMessage()
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="ov-btn-primary !rounded-2xl !px-3"
-                    onClick={sendMessage}
-                  >
-                    <SendHorizontal className="h-4 w-4" />
-                  </button>
-                </div>
+                <ChatComposer
+                  draft={draft}
+                  onDraftChange={setDraft}
+                  enterToSend={prefs.chat.enterToSend}
+                  peerLanguage={active.members[0]?.language || user?.nativeLanguage || 'bg'}
+                  replyPreview={replyPreview}
+                  onClearReply={() => setReplyPreview(null)}
+                  showDeal={user?.plan === 'business' || admin}
+                  showClip={user?.plan === 'podcast' || admin}
+                  onSend={(partial) => appendMessage(partial)}
+                />
               </footer>
             </>
           ) : (

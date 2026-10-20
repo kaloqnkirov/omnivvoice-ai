@@ -826,9 +826,12 @@ export default function SettingsPanel({
                     value={prefs.room.micDevice}
                     onChange={(e) => patchRoom({ micDevice: e.target.value })}
                   >
-                    <option value="default">System default</option>
-                    <option value="headset">Headset mic</option>
-                    <option value="usb">USB condenser</option>
+                    <option value="default">Системен по подразбиране</option>
+                    {mediaDevices.audioIn.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Микрофон ${d.deviceId.slice(0, 6)}`}
+                      </option>
+                    ))}
                   </select>
                 </Field>
                 <Field label="Камера">
@@ -839,9 +842,12 @@ export default function SettingsPanel({
                       patchRoom({ cameraDevice: e.target.value })
                     }
                   >
-                    <option value="default">System default</option>
-                    <option value="front">Front camera</option>
-                    <option value="dslr">Virtual DSLR</option>
+                    <option value="default">Системна по подразбиране</option>
+                    {mediaDevices.videoIn.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Камера ${d.deviceId.slice(0, 6)}`}
+                      </option>
+                    ))}
                   </select>
                 </Field>
                 <Field label="Спийкъри">
@@ -852,9 +858,12 @@ export default function SettingsPanel({
                       patchRoom({ speakerDevice: e.target.value })
                     }
                   >
-                    <option value="default">System default</option>
-                    <option value="headphones">Headphones</option>
-                    <option value="monitor">Studio monitors</option>
+                    <option value="default">Системни по подразбиране</option>
+                    {mediaDevices.audioOut.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Изход ${d.deviceId.slice(0, 6)}`}
+                      </option>
+                    ))}
                   </select>
                 </Field>
               </div>

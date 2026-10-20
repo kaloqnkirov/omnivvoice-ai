@@ -1,69 +1,127 @@
-import Image from "next/image";
+'use client'
 
-export default function Home() {
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+import {
+  Building2,
+  Clapperboard,
+  MessageCircle,
+  Sparkles,
+  Users,
+  Waves,
+} from 'lucide-react'
+import { needsCheckout } from '@/lib/access'
+import { useTheme } from '@/lib/theme'
+
+export default function LandingPage() {
+  const router = useRouter()
+  const { prefs, hydrated } = useTheme()
+
+  useEffect(() => {
+    if (!hydrated || !prefs.user) return
+    if (needsCheckout(prefs.user)) {
+      router.replace(`/checkout?plan=${prefs.user.plan}`)
+      return
+    }
+    router.replace('/dashboard')
+  }, [hydrated, prefs.user, router])
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="relative flex min-h-screen flex-col px-4 py-8 sm:px-6 lg:px-8">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Waves className="h-5 w-5 text-[var(--accent)]" />
+          <span className="font-[family-name:var(--font-display)] text-lg font-semibold">
+            OmniVoice AI
+          </span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="flex gap-2">
+          <Link href="/login" className="ov-btn-ghost !px-4 !py-2 text-xs">
+            Вход
+          </Link>
+          <Link href="/register" className="ov-btn-primary !px-4 !py-2 text-xs">
+            Регистрация
+          </Link>
+        </div>
+      </header>
+
+      <main className="mx-auto mt-16 w-full max-w-6xl">
+        <p className="ov-kicker">Realtime translation suite</p>
+        <h1 className="mt-3 max-w-3xl font-[family-name:var(--font-display)] text-4xl font-semibold tracking-tight sm:text-6xl">
+          Messenger dashboard.
+          <span className="text-[var(--accent)]"> Rooms that translate.</span>
+        </h1>
+        <p className="mt-4 max-w-2xl text-base text-[var(--muted)] sm:text-lg">
+          Стандартна регистрация → дашборд в стил месинджър → стая за разговор.
+          Normal е безплатен. Business и Podcast се плащат преди достъп.
+        </p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link href="/register" className="ov-btn-primary">
+            Започни безплатно
+          </Link>
+          <Link href="/login" className="ov-btn-ghost">
+            Вече имам акаунт
+          </Link>
+          <Link href="/embed" className="ov-btn-ghost">
+            Website widget
+          </Link>
+        </div>
+
+        <div className="mt-14 grid gap-4 md:grid-cols-3">
+          <Feature
+            icon={Users}
+            title="Normal · Free"
+            text="Чат + обаждания с превод, абонати, стаи, guest контрол."
+          />
+          <Feature
+            icon={Building2}
+            title="Business · Paid"
+            text="AI секретар към телефон, CRM, sales coaching, call recap."
+          />
+          <Feature
+            icon={Clapperboard}
+            title="Podcast · Paid"
+            text="OBS, multistream към YouTube/TikTok/Facebook и още."
+          />
+        </div>
+
+        <div className="ov-panel mt-10 rounded-[28px] p-6">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <MessageCircle className="h-4 w-4 text-[var(--accent)]" />
+            Как работи
+          </p>
+          <ol className="mt-3 space-y-2 text-sm text-[var(--muted)]">
+            <li>1. Регистрация + режим (админът ползва всичко безплатно)</li>
+            <li>2. Business/Podcast — плащане (освен ако си админ)</li>
+            <li>3. Messenger дашборд + покани с линк (име + език за гости)</li>
+            <li>4. Сайт widget: клиентите участват без собствен абонамент</li>
+            <li>5. Когато хостът натисне End — гостите се изхвърлят</li>
+          </ol>
+          <p className="mt-4 inline-flex items-center gap-2 text-xs text-[var(--accent)]">
+            <Sparkles className="h-3.5 w-3.5" />
+            Social login + contact import са готови в UI (демо без външни OAuth ключове)
+          </p>
         </div>
       </main>
     </div>
-  );
+  )
+}
+
+function Feature({
+  icon: Icon,
+  title,
+  text,
+}: {
+  icon: typeof Users
+  title: string
+  text: string
+}) {
+  return (
+    <div className="ov-panel rounded-[24px] p-5">
+      <Icon className="h-5 w-5 text-[var(--accent)]" />
+      <p className="mt-3 text-sm font-semibold">{title}</p>
+      <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{text}</p>
+    </div>
+  )
 }

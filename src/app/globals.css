@@ -1,26 +1,210 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+:root,
+html.light,
+html[data-theme='light'] {
+  --background: #f4f7f4;
+  --foreground: #10201c;
+  --muted: #5b6b66;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panel-border: rgba(16, 32, 28, 0.1);
+  --chip: rgba(16, 32, 28, 0.04);
+  --accent: #0f8f75;
+  --accent-soft: rgba(15, 143, 117, 0.14);
+  --accent-ink: #f4fffb;
+  --success: #0f9f6e;
+  --danger: #d14343;
+  --glow-a: rgba(15, 143, 117, 0.18);
+  --glow-b: rgba(196, 145, 58, 0.14);
+  --glow-c: rgba(30, 90, 120, 0.1);
+  --stage: #e8efea;
+}
+
+html.dark,
+html[data-theme='dark'] {
+  --background: #07110e;
+  --foreground: #e8f5f0;
+  --muted: #8aa39a;
+  --panel: rgba(10, 22, 18, 0.82);
+  --panel-border: rgba(180, 220, 205, 0.12);
+  --chip: rgba(255, 255, 255, 0.04);
+  --accent: #2dd4a8;
+  --accent-soft: rgba(45, 212, 168, 0.14);
+  --accent-ink: #04241a;
+  --success: #34d399;
+  --danger: #f87171;
+  --glow-a: rgba(45, 212, 168, 0.16);
+  --glow-b: rgba(212, 168, 74, 0.1);
+  --glow-c: rgba(56, 140, 180, 0.1);
+  --stage: #0b1713;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-body);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(1100px 520px at 8% -8%, var(--glow-a), transparent 55%),
+    radial-gradient(900px 480px at 92% 0%, var(--glow-b), transparent 50%),
+    radial-gradient(700px 420px at 50% 100%, var(--glow-c), transparent 55%),
+    linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.04)),
+    var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+}
+
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.audio-bar {
+  animation: wave 1.1s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.engine-pulse {
+  animation: pulse-soft 2.2s ease-in-out infinite;
+}
+
+.ov-rise {
+  animation: rise-in 0.45s ease-out both;
+}
+
+.ov-panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(18px);
+}
+
+.ov-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ov-field,
+.ov-input {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--panel-border);
+  background: var(--chip);
+  color: var(--foreground);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.ov-field:focus,
+.ov-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.ov-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 14px;
+  border: 1px solid var(--panel-border);
+  background: var(--chip);
+  padding: 0 0.85rem;
+}
+
+.ov-input-wrap .ov-input {
+  border: 0;
+  background: transparent;
+  padding-left: 0;
+  box-shadow: none;
+}
+
+.ov-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 0.7rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 650;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.ov-btn-primary:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.ov-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: var(--chip);
+  color: var(--foreground);
+  padding: 0.65rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.ov-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: var(--chip);
+  color: var(--foreground);
+  padding: 0.45rem;
+}
+
+.ov-stage {
+  background: var(--stage);
 }

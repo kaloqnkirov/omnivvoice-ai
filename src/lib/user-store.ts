@@ -19,6 +19,7 @@ import {
   type AppearanceSettings,
   type ThemeId,
 } from '@/lib/appearance'
+import type { CustomStudioRoom } from '@/lib/studio-rooms'
 
 export type ContactMethod = 'email' | 'phone'
 
@@ -97,6 +98,8 @@ export type RoomSettings = {
   /** Virtual office plate id from STUDIO_ROOMS */
   studioRoomId: string
   customBackground: string | null
+  /** User-uploaded office/studio plates (persisted) */
+  customStudioRooms: CustomStudioRoom[]
   videoFilter: 'none' | 'cinema' | 'warm' | 'cool' | 'soft' | 'vivid' | 'noir'
   videoQuality: 'auto' | '360p' | '720p' | '1080p'
 }
@@ -311,6 +314,7 @@ export const DEFAULT_ROOM: RoomSettings = {
   lobbyMusic: true,
   studioRoomId: 'glass-office',
   customBackground: null,
+  customStudioRooms: [],
   videoFilter: 'none',
   videoQuality: '1080p',
 }
@@ -675,7 +679,11 @@ export function loadPreferences(): AppPreferences {
         ? parsed.socialLinks
         : DEFAULT_SOCIAL_LINKS,
       websites: parsed.websites?.length ? parsed.websites : DEMO_WEBSITES,
-      room: { ...base.room, ...parsed.room },
+      room: {
+        ...base.room,
+        ...parsed.room,
+        customStudioRooms: parsed.room?.customStudioRooms || [],
+      },
       chat: { ...base.chat, ...parsed.chat },
       podcast: {
         ...base.podcast,

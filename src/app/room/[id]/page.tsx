@@ -21,6 +21,7 @@ import LiveKitStage from '@/components/LiveKitStage'
 import RichMessageBubble from '@/components/RichMessageBubble'
 import SettingsPanel from '@/components/SettingsPanel'
 import VirtualRoomSelector from '@/components/VirtualRoomSelector'
+import { isAdminUser } from '@/lib/access'
 import { isClientBackendEnabled } from '@/lib/auth-client'
 import {
   clearGuestSession,
@@ -433,6 +434,7 @@ function RoomInner() {
             screenShare={screenShare}
             studioRoomId={prefs.room.studioRoomId}
             customBackground={prefs.room.customBackground}
+            customStudioRooms={prefs.room.customStudioRooms || []}
             videoFilter={prefs.room.videoFilter}
             videoQuality={prefs.room.videoQuality}
             mirrorVideo={prefs.room.mirrorVideo}
@@ -691,17 +693,50 @@ function RoomInner() {
 
       <VirtualRoomSelector
         open={studioOpen}
+        userPlan={user?.plan || 'free'}
+        isAdmin={!isGuest && isAdminUser(user)}
         activeRoomId={prefs.room.studioRoomId}
         customBackground={prefs.room.customBackground}
+        customRooms={prefs.room.customStudioRooms || []}
         onClose={() => setStudioOpen(false)}
         onSelect={(roomId) => {
-          patchRoom({ studioRoomId: roomId, customBackground: null })
+          const custom = (prefs.room.customStudioRooms || []).find(
+            (r) => r.id === roomId
+          )
+          patchRoom({
+            studioRoomId: roomId,
+            customBackground: custom ? custom.imageDataUrl : null,
+          })
           setStudioOpen(false)
         }}
-        onCustomUpload={(dataUrl) => {
-          patchRoom({ customBackground: dataUrl })
-          setStudioOpen(false)
+        onAddCustomRoom={(room) => {
+          patchRoom({
+            customStudioRooms: [room, ...(prefs.room.customStudioRooms || [])],
+            studioRoomId: room.id,
+            customBackground: room.imageDataUrl,
+          })
         }}
+        onDeleteCustomRoom={(roomId) => {
+          const next = (prefs.room.customStudioRooms || []).filter(
+            (r) => r.id !== roomId
+          )
+          patchRoom({
+            customStudioRooms: next,
+            studioRoomId:
+              prefs.room.studioRoomId === roomId
+                ? 'glass-office'
+                : prefs.room.studioRoomId,
+            customBackground:
+              prefs.room.studioRoomId === roomId
+                ? null
+                : prefs.room.customBackground,
+          })
+        }}
+        onUpgradeHint={() =>
+          window.alert(
+            'Тази стая е в Business или Podcast пакета. Надгради плана от Checkout / настройки.'
+          )
+        }
       />
 
       {!isGuest ? (

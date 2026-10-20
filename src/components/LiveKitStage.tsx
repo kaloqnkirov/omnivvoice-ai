@@ -15,6 +15,7 @@ import {
   VIDEO_FILTERS,
   VIDEO_QUALITY,
   getStudioRoom,
+  type CustomStudioRoom,
   type VideoFilterId,
   type VideoQualityId,
 } from '@/lib/studio-rooms'
@@ -28,6 +29,7 @@ type Props = {
   screenShare?: boolean
   studioRoomId?: string
   customBackground?: string | null
+  customStudioRooms?: CustomStudioRoom[]
   videoFilter?: VideoFilterId
   videoQuality?: VideoQualityId
   mirrorVideo?: boolean
@@ -53,6 +55,7 @@ export default function LiveKitStage({
   screenShare = false,
   studioRoomId = 'glass-office',
   customBackground = null,
+  customStudioRooms = [],
   videoFilter = 'none',
   videoQuality = '1080p',
   mirrorVideo = true,
@@ -71,7 +74,7 @@ export default function LiveKitStage({
   const [error, setError] = useState<string | null>(null)
   const [remoteCount, setRemoteCount] = useState(0)
 
-  const studio = getStudioRoom(studioRoomId)
+  const studio = getStudioRoom(studioRoomId, customStudioRooms)
   const bgUrl = customBackground || studio.imageUrl
   const filterCss =
     VIDEO_FILTERS.find((f) => f.id === videoFilter)?.css || 'none'

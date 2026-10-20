@@ -28,6 +28,7 @@ type Props = {
   onClearReply?: () => void
   showDeal?: boolean
   showClip?: boolean
+  allowVoice?: boolean
   clipAtSec?: number
   placeholder?: string
 }
@@ -42,6 +43,7 @@ export default function ChatComposer({
   onClearReply,
   showDeal = true,
   showClip = false,
+  allowVoice = true,
   clipAtSec = 0,
   placeholder = 'Напиши съобщение…',
 }: Props) {
@@ -222,16 +224,18 @@ export default function ChatComposer({
           }}
         />
 
-        <VoiceNoteButton
-          onRecorded={({ dataUrl, durationSec }) => {
-            onSend({
-              text: `🎤 Гласова бележка (${durationSec}s)`,
-              kind: 'voice',
-              mediaUrl: dataUrl,
-              voiceDurationSec: durationSec,
-            })
-          }}
-        />
+        {allowVoice ? (
+          <VoiceNoteButton
+            onRecorded={({ dataUrl, durationSec }) => {
+              onSend({
+                text: `🎤 Гласова бележка (${durationSec}s)`,
+                kind: 'voice',
+                mediaUrl: dataUrl,
+                voiceDurationSec: durationSec,
+              })
+            }}
+          />
+        ) : null}
 
         {showClip ? (
           <button

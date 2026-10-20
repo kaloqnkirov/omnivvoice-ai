@@ -50,6 +50,7 @@ import {
   type AppearanceSettings,
   type ThemeId,
 } from '@/lib/appearance'
+import { signOutBackend } from '@/lib/auth-client'
 import { useTheme } from '@/lib/theme'
 
 type Tab =
@@ -121,6 +122,12 @@ export default function SettingsPanel({
     'all' | 'video' | 'social' | 'audio' | 'community'
   >('all')
 
+  const [mediaDevices, setMediaDevices] = useState<{
+    audioIn: MediaDeviceInfo[]
+    videoIn: MediaDeviceInfo[]
+    audioOut: MediaDeviceInfo[]
+  }>({ audioIn: [], videoIn: [], audioOut: [] })
+
   useEffect(() => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return
     const load = () => setVoices(window.speechSynthesis.getVoices())
@@ -130,6 +137,22 @@ export default function SettingsPanel({
       window.speechSynthesis.onvoiceschanged = null
     }
   }, [])
+
+  useEffect(() => {
+    if (!open || typeof navigator === 'undefined' || !navigator.mediaDevices) {
+      return
+    }
+    void navigator.mediaDevices
+      .enumerateDevices()
+      .then((list) => {
+        setMediaDevices({
+          audioIn: list.filter((d) => d.kind === 'audioinput'),
+          videoIn: list.filter((d) => d.kind === 'videoinput'),
+          audioOut: list.filter((d) => d.kind === 'audiooutput'),
+        })
+      })
+      .catch(() => undefined)
+  }, [open])
 
   const plan = prefs.user?.plan || 'free'
   const musicTracks = useMemo(() => tracksForPlan(plan), [plan])
@@ -385,7 +408,13 @@ export default function SettingsPanel({
                   <button
                     type="button"
                     className="ov-btn-ghost w-full"
-                    onClick={() => updatePrefs({ user: null })}
+                    onClick={() => {
+                      void signOutBackend().finally(() => {
+                        updatePrefs({ user: null })
+                        onClose()
+                        window.location.assign('/login')
+                      })
+                    }}
                   >
                     Изход
                   </button>

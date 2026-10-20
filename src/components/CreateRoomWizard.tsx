@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   MessageCircle,
   Phone,
@@ -94,6 +94,28 @@ const PRESETS: {
   },
 ]
 
+function makeDefaultDraft(
+  defaultLanguage: string,
+  studioRoomId: string
+): CreateRoomDraft {
+  return {
+    title: 'Моята стая',
+    channel: 'both',
+    isGroup: false,
+    guestLanguage: defaultLanguage,
+    studioRoomId,
+    videoOnJoin: true,
+    videoQuality: '720p',
+    waitingRoom: false,
+    allowGuests: true,
+    copyInvite: true,
+    enterNow: true,
+    saveChat: true,
+    disappearAfter: 'off',
+    translationOn: true,
+  }
+}
+
 export default function CreateRoomWizard({
   open,
   userPlan,
@@ -108,23 +130,24 @@ export default function CreateRoomWizard({
     () => roomsForPlan(isAdmin ? 'podcast' : userPlan, customRooms).slice(0, 12),
     [userPlan, isAdmin, customRooms]
   )
+  const fallbackRoomId = rooms[0]?.id || 'glass-office'
 
-  const [draft, setDraft] = useState<CreateRoomDraft>({
-    title: 'Моята стая',
-    channel: 'both',
-    isGroup: false,
-    guestLanguage: defaultLanguage,
-    studioRoomId: rooms[0]?.id || 'glass-office',
-    videoOnJoin: true,
-    videoQuality: '720p',
-    waitingRoom: false,
-    allowGuests: true,
-    copyInvite: true,
-    enterNow: true,
-    saveChat: true,
-    disappearAfter: 'off',
-    translationOn: true,
-  })
+  const [draft, setDraft] = useState<CreateRoomDraft>(() =>
+    makeDefaultDraft(defaultLanguage, fallbackRoomId)
+  )
+
+  useEffect(() => {
+    if (!open) return
+    setDraft(makeDefaultDraft(defaultLanguage, fallbackRoomId))
+  }, [open, defaultLanguage, fallbackRoomId])
+
+  // Keep studio pick valid if plan changes while open
+  useEffect(() => {
+    if (!open) return
+    if (!rooms.some((r) => r.id === draft.studioRoomId) && rooms[0]) {
+      setDraft((d) => ({ ...d, studioRoomId: rooms[0].id }))
+    }
+  }, [open, rooms, draft.studioRoomId])
 
   if (!open) return null
 
@@ -132,9 +155,22 @@ export default function CreateRoomWizard({
     setDraft((d) => ({ ...d, ...p }))
   }
 
+  function submit() {
+    const title = draft.title.trim() || 'Моята стая'
+    const studioRoomId = rooms.some((r) => r.id === draft.studioRoomId)
+      ? draft.studioRoomId
+      : fallbackRoomId
+    onCreate({ ...draft, title, studioRoomId })
+  }
+
   return (
     <div className="fixed inset-0 z-[78] flex items-end justify-center bg-black/60 px-3 py-3 backdrop-blur-sm sm:items-center">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-[var(--panel-border)] bg-[var(--panel)] shadow-2xl">
+      <div
+        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-[var(--panel-border)] bg-[var(--panel)] shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Създай стая"
+      >
         <div className="flex items-center justify-between border-b border-[var(--panel-border)] px-5 py-4">
           <div>
             <p className="text-sm font-semibold">Създай стая</p>
@@ -142,7 +178,12 @@ export default function CreateRoomWizard({
               Избери опциите преди създаването — Normal / Business / Podcast
             </p>
           </div>
-          <button type="button" className="ov-icon-btn" onClick={onClose}>
+          <button
+            type="button"
+            className="ov-icon-btn"
+            onClick={onClose}
+            disabled={busy}
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -255,30 +296,34 @@ export default function CreateRoomWizard({
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
               Фон на стаята
             </p>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {rooms.map((room) => (
-                <button
-                  key={room.id}
-                  type="button"
-                  onClick={() => patch({ studioRoomId: room.id })}
-                  className={`overflow-hidden rounded-xl border text-left ${
-                    draft.studioRoomId === room.id
-                      ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/40'
-                      : 'border-[var(--panel-border)]'
-                  }`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={room.imageUrl}
-                    alt={room.name}
-                    className="h-14 w-full object-cover"
-                  />
-                  <span className="block truncate px-1.5 py-1 text-[10px] font-medium">
-                    {room.name}
-                  </span>
-                </button>
-              ))}
-            </div>
+            {rooms.length === 0 ? (
+              <p className="text-xs text-[var(--muted)]">Няма налични фонове</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {rooms.map((room) => (
+                  <button
+                    key={room.id}
+                    type="button"
+                    onClick={() => patch({ studioRoomId: room.id })}
+                    className={`overflow-hidden rounded-xl border text-left ${
+                      draft.studioRoomId === room.id
+                        ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/40'
+                        : 'border-[var(--panel-border)]'
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={room.imageUrl}
+                      alt={room.name}
+                      className="h-14 w-full object-cover"
+                    />
+                    <span className="block truncate px-1.5 py-1 text-[10px] font-medium">
+                      {room.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="grid gap-2 sm:grid-cols-2">
@@ -297,7 +342,12 @@ export default function CreateRoomWizard({
             <Toggle
               label="Разреши гости с линк"
               checked={draft.allowGuests}
-              onChange={(v) => patch({ allowGuests: v })}
+              onChange={(v) =>
+                patch({
+                  allowGuests: v,
+                  copyInvite: v ? draft.copyInvite : false,
+                })
+              }
               icon={Waves}
             />
             <Toggle
@@ -362,8 +412,8 @@ export default function CreateRoomWizard({
           <button
             type="button"
             className="ov-btn-primary flex-1 justify-center"
-            disabled={busy || !draft.title.trim()}
-            onClick={() => onCreate({ ...draft, title: draft.title.trim() })}
+            disabled={busy}
+            onClick={submit}
           >
             {busy ? 'Създаване…' : 'Създай стая'}
           </button>

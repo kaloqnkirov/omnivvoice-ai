@@ -63,6 +63,7 @@ import {
   needsCheckout,
   withUnlockedPlan,
 } from '@/lib/access'
+import { useAmbientMusic } from '@/hooks/useAmbientMusic'
 import { PLANS, type PlanId } from '@/lib/languages'
 import {
   fetchBackendUser,
@@ -126,6 +127,14 @@ export default function DashboardPage() {
   const [dragToast, setDragToast] = useState<string | null>(null)
   const admin = isAdminUser(user)
   const fullAccess = hasFullAccess(user)
+
+  useAmbientMusic({
+    enabled: Boolean(prefs.music?.enabled),
+    trackId: prefs.music?.trackId || 'soft-lounge',
+    volume: prefs.music?.volume ?? 0.28,
+    plan: user?.plan || 'free',
+    duck: Boolean(prefs.music?.duckDuringSpeech),
+  })
   const mood = getMood(prefs.profileSocial?.moodId)
   const snap = prefs.snapPlus || DEFAULT_SNAP_PLUS
   const [myStories, setMyStories] = useState(
@@ -859,80 +868,96 @@ export default function DashboardPage() {
       let roomId = `conv_${Date.now()}`
       let inviteUrl: string | null = null
       let newInvite: InviteLink | null = null
+      let usedBackend = false
 
       if (isClientBackendEnabled()) {
-        const res = await fetch('/api/rooms', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            title: draft.title,
-            channel: draft.channel,
-          }),
-        })
-        const data = (await res.json()) as {
-          room?: { id: string; title: string }
-          error?: string
-        }
-        if (!res.ok || !data.room) {
-          window.alert(data.error || 'Неуспешно създаване на стая')
-          return
-        }
-        roomId = data.room.id
-
-        if (draft.allowGuests && draft.copyInvite) {
-          const inv = await fetch('/api/invites', {
+        try {
+          const res = await fetch('/api/rooms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
-              roomId,
-              createRoom: false,
-              label: `Покана · ${draft.title}`,
+              title: draft.title,
               channel: draft.channel,
-              prefillLanguage: draft.guestLanguage,
             }),
           })
-          const invData = (await inv.json()) as {
-            url?: string
-            invite?: { id: string; code: string; room_id: string; label: string }
+          const data = (await res.json()) as {
+            room?: { id: string; title: string }
             error?: string
           }
-          if (inv.ok && invData.url && invData.invite) {
-            inviteUrl = invData.url
-            newInvite = {
-              id: invData.invite.id,
-              code: invData.invite.code,
-              conversationId: invData.invite.room_id,
-              label: invData.invite.label,
-              channel: draft.channel,
-              prefillLanguage: draft.guestLanguage,
-              createdAt: new Date().toISOString(),
-              active: true,
-            }
-            void navigator.clipboard.writeText(invData.url)
-            setInviteCopied(true)
-            window.setTimeout(() => setInviteCopied(false), 2000)
+          if (res.ok && data.room?.id) {
+            roomId = data.room.id
+            usedBackend = true
           }
+        } catch {
+          // fall through to local room
         }
-      } else if (draft.allowGuests && draft.copyInvite) {
-        const code = `inv_${Math.random().toString(36).slice(2, 8)}`
-        newInvite = {
-          id: `invite_${Date.now()}`,
-          code,
-          conversationId: roomId,
-          label: `Покана · ${draft.title}`,
-          channel: draft.channel,
-          prefillLanguage: draft.guestLanguage,
-          createdAt: new Date().toISOString(),
-          active: true,
-        }
-        inviteUrl = `${window.location.origin}/join?invite=${code}&conv=${roomId}&channel=${draft.channel}&lang=${draft.guestLanguage}`
-        void navigator.clipboard.writeText(inviteUrl)
-        setInviteCopied(true)
-        window.setTimeout(() => setInviteCopied(false), 2000)
       }
 
+      if (draft.allowGuests && draft.copyInvite) {
+        if (usedBackend) {
+          try {
+            const inv = await fetch('/api/invites', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                roomId,
+                createRoom: false,
+                label: `Покана · ${draft.title}`,
+                channel: draft.channel,
+                prefillLanguage: draft.guestLanguage,
+              }),
+            })
+            const invData = (await inv.json()) as {
+              url?: string
+              invite?: {
+                id: string
+                code: string
+                room_id: string
+                label: string
+              }
+            }
+            if (inv.ok && invData.url && invData.invite) {
+              inviteUrl = invData.url
+              newInvite = {
+                id: invData.invite.id,
+                code: invData.invite.code,
+                conversationId: invData.invite.room_id,
+                label: invData.invite.label,
+                channel: draft.channel,
+                prefillLanguage: draft.guestLanguage,
+                createdAt: new Date().toISOString(),
+                active: true,
+              }
+              void navigator.clipboard.writeText(invData.url).catch(() => undefined)
+              setInviteCopied(true)
+              window.setTimeout(() => setInviteCopied(false), 2000)
+            }
+          } catch {
+            // local invite below
+          }
+        }
+        if (!newInvite) {
+          const code = `inv_${Math.random().toString(36).slice(2, 8)}`
+          newInvite = {
+            id: `invite_${Date.now()}`,
+            code,
+            conversationId: roomId,
+            label: `Покана · ${draft.title}`,
+            channel: draft.channel,
+            prefillLanguage: draft.guestLanguage,
+            createdAt: new Date().toISOString(),
+            active: true,
+          }
+          inviteUrl = `${window.location.origin}/join?invite=${code}&conv=${roomId}&channel=${draft.channel}&lang=${draft.guestLanguage}`
+          void navigator.clipboard.writeText(inviteUrl).catch(() => undefined)
+          setInviteCopied(true)
+          window.setTimeout(() => setInviteCopied(false), 2000)
+        }
+      }
+
+      const now = new Date().toISOString()
       const conv: Conversation = {
         id: roomId,
         title: draft.title,
@@ -941,15 +966,24 @@ export default function DashboardPage() {
         lastMessage: draft.allowGuests
           ? 'Стаята е готова · покани гости'
           : 'Стаята е създадена',
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
         unread: 0,
         pinned: false,
         muted: false,
-        messages: [],
+        messages: [
+          {
+            id: `msg_${Date.now()}`,
+            fromMe: true,
+            text: `🏠 Стаята „${draft.title}“ е създадена`,
+            createdAt: now,
+            status: 'sent',
+          },
+        ],
         saveChat: draft.saveChat,
         disappearAfter: draft.disappearAfter,
         sessionOpen: true,
         activeGuestIds: [],
+        joinRequests: [],
       }
 
       updatePrefs({
@@ -959,7 +993,12 @@ export default function DashboardPage() {
           videoQuality: draft.videoQuality,
           waitingRoom: draft.waitingRoom,
           allowGuests: draft.allowGuests,
+          knockToEnter: draft.waitingRoom,
           customBackground: null,
+        },
+        voice: {
+          ...prefs.voice,
+          targetLanguage: draft.guestLanguage,
         },
         conversations: [
           conv,
@@ -973,15 +1012,22 @@ export default function DashboardPage() {
       setTab('chats')
       setInboxFilter('all')
       setCreateRoomOpen(false)
+      showDragToast(
+        usedBackend
+          ? 'Стаята е създадена'
+          : 'Стаята е създадена (локално)'
+      )
 
       if (draft.enterNow) {
         const video =
           draft.videoOnJoin &&
           (draft.channel === 'both' || draft.channel === 'call')
         router.push(`/room/${roomId}?video=${video ? '1' : '0'}`)
-      } else if (inviteUrl) {
-        window.alert('Стаята е създадена. Invite линкът е копиран.')
       }
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Неуспешно създаване на стая'
+      )
     } finally {
       setCreatingRoom(false)
     }
@@ -1327,22 +1373,11 @@ export default function DashboardPage() {
       <div className="mx-auto grid w-full max-w-7xl flex-1 overflow-hidden lg:grid-cols-[340px_1fr]">
         <aside className="flex flex-col border-r border-[var(--panel-border)] bg-[var(--chip)]/40">
           <div className="border-b border-[var(--panel-border)] p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <Waves className="h-4 w-4 shrink-0 text-[var(--accent)]" />
-                <p className="truncate text-sm font-semibold">
-                  Messenger dashboard
-                </p>
-              </div>
-              <button
-                type="button"
-                className="ov-btn-primary !px-2.5 !py-1.5 text-[11px]"
-                onClick={() => setCreateRoomOpen(true)}
-                title="Създай стая"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Стая
-              </button>
+            <div className="flex min-w-0 items-center gap-2">
+              <Waves className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+              <p className="truncate text-sm font-semibold">
+                Messenger dashboard
+              </p>
             </div>
             <button
               type="button"
@@ -1614,10 +1649,29 @@ export default function DashboardPage() {
                 prefs.blocked.map((item) => (
                   <div
                     key={item.id}
-                    className="mb-1 rounded-2xl px-3 py-2.5 text-sm hover:bg-[var(--chip)]"
+                    className="mb-1 flex items-center gap-2 rounded-2xl px-3 py-2.5 text-sm hover:bg-[var(--chip)]"
                   >
-                    <p className="font-semibold">{item.name}</p>
-                    <p className="text-xs text-[var(--muted)]">{item.reason}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">{item.name}</p>
+                      <p className="text-xs text-[var(--muted)]">{item.reason}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="ov-btn-ghost !px-2.5 !py-1 text-[11px]"
+                      onClick={() => {
+                        updatePrefs({
+                          blocked: prefs.blocked.filter((b) => b.id !== item.id),
+                          subscribers: prefs.subscribers.map((s) =>
+                            s.id === item.id
+                              ? { ...s, status: 'active' as const }
+                              : s
+                          ),
+                        })
+                        showDragToast(`${item.name} е отблокиран/а`)
+                      }}
+                    >
+                      Отблокирай
+                    </button>
                   </div>
                 ))
               ) : (
@@ -1821,41 +1875,33 @@ export default function DashboardPage() {
                     <span className="text-[10px] text-[var(--muted)]">24ч</span>
                   </button>
                 ))}
-                {[
-                  { name: 'Live', tone: 'from-rose-400 to-orange-500', label: 'ON AIR' },
-                  { name: 'Deal', tone: 'from-amber-400 to-yellow-600', label: 'CRM' },
-                ].map((story) => (
-                  <button
-                    key={story.name}
-                    type="button"
-                    className="flex shrink-0 flex-col items-center gap-1"
-                    onClick={() =>
-                      appendMessage({ text: `📡 Status: ${story.label}` })
-                    }
-                  >
-                    <span
-                      className={`flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br ${story.tone} text-xs font-bold text-white`}
-                    >
-                      {story.name.slice(0, 1)}
-                    </span>
-                    <span className="text-[10px] text-[var(--muted)]">
-                      {story.label}
-                    </span>
-                  </button>
-                ))}
               </div>
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-                {active.messages.map((msg) => (
-                  <RichMessageBubble
-                    key={msg.id}
-                    msg={msg}
-                    enableReactions={prefs.chat.reactions}
-                    onReact={reactToMessage}
-                    onReply={(_id, preview) => setReplyPreview(preview)}
-                    onVote={votePoll}
-                  />
-                ))}
+                {active.messages
+                  .filter((msg) => {
+                    if (active.disappearAfter === 'off' || active.saveChat) {
+                      return true
+                    }
+                    const age = Date.now() - new Date(msg.createdAt).getTime()
+                    const limit =
+                      active.disappearAfter === '1h'
+                        ? 3600_000
+                        : active.disappearAfter === '24h'
+                          ? 86_400_000
+                          : 7 * 86_400_000
+                    return age < limit
+                  })
+                  .map((msg) => (
+                    <RichMessageBubble
+                      key={msg.id}
+                      msg={msg}
+                      enableReactions={prefs.chat.reactions}
+                      onReact={reactToMessage}
+                      onReply={(_id, preview) => setReplyPreview(preview)}
+                      onVote={votePoll}
+                    />
+                  ))}
               </div>
 
               <footer className="border-t border-[var(--panel-border)] p-3">
@@ -1868,6 +1914,7 @@ export default function DashboardPage() {
                   onClearReply={() => setReplyPreview(null)}
                   showDeal={user?.plan === 'business' || admin}
                   showClip={user?.plan === 'podcast' || admin}
+                  allowVoice={prefs.chat.voiceMessages !== false}
                   onSend={(partial) => appendMessage(partial)}
                 />
               </footer>

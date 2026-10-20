@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import {
   Archive,
   Ban,
@@ -105,6 +105,9 @@ export default function DashboardPage() {
     type: 'room' | 'subscriber'
     id: string
   } | null>(null)
+  const [dragSubId, setDragSubId] = useState<string | null>(null)
+  const [dropOverId, setDropOverId] = useState<string | null>(null)
+  const [dragToast, setDragToast] = useState<string | null>(null)
   const admin = isAdminUser(user)
   const fullAccess = hasFullAccess(user)
   const mood = getMood(prefs.profileSocial?.moodId)
@@ -328,6 +331,101 @@ export default function DashboardPage() {
     updatePrefs({ conversations: [conv, ...prefs.conversations] })
     setActiveId(conv.id)
     setTab('chats')
+  }
+
+  function showDragToast(text: string) {
+    setDragToast(text)
+    window.setTimeout(() => setDragToast(null), 2200)
+  }
+
+  function addSubscriberToConversation(subId: string, conversationId: string) {
+    const sub = prefs.subscribers.find((item) => item.id === subId)
+    const conv = prefs.conversations.find((item) => item.id === conversationId)
+    if (!sub || !conv) return
+
+    if (conv.members.some((m) => m.id === sub.id)) {
+      setActiveId(conversationId)
+      setTab('chats')
+      showDragToast(`${sub.name} вече е в стаята`)
+      return
+    }
+
+    const member = {
+      id: sub.id,
+      name: sub.name,
+      language: sub.language,
+      presence: sub.presence || 'offline',
+      avatarDataUrl: sub.avatarDataUrl,
+    }
+    const nextMembers = [...conv.members, member]
+    const becomesGroup = nextMembers.length > 1 || conv.isGroup
+    const now = new Date().toISOString()
+
+    updatePrefs({
+      conversations: prefs.conversations.map((item) =>
+        item.id === conversationId
+          ? {
+              ...item,
+              members: nextMembers,
+              isGroup: becomesGroup,
+              lastMessage: `${sub.name} е добавен/а в стаята`,
+              updatedAt: now,
+              messages: [
+                ...item.messages,
+                {
+                  id: `msg_${Date.now()}`,
+                  fromMe: true,
+                  text: `👤 ${sub.name} е добавен/а чрез плъзгане`,
+                  createdAt: now,
+                  status: 'sent' as const,
+                },
+              ],
+            }
+          : item
+      ),
+    })
+    setActiveId(conversationId)
+    setTab('chats')
+    showDragToast(`${sub.name} → ${conv.title}`)
+  }
+
+  function onSubscriberDragStart(subId: string, e: DragEvent) {
+    setDragSubId(subId)
+    e.dataTransfer.setData('text/omnivvoice-subscriber', subId)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
+  function onSubscriberDragEnd() {
+    setDragSubId(null)
+    setDropOverId(null)
+  }
+
+  function roomDropHandlers(conversationId: string) {
+    return {
+      onDragOver: (e: DragEvent) => {
+        if (
+          !dragSubId &&
+          !e.dataTransfer.types.includes('text/omnivvoice-subscriber')
+        ) {
+          return
+        }
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        setDropOverId(conversationId)
+      },
+      onDragLeave: (e: DragEvent) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return
+        setDropOverId((id) => (id === conversationId ? null : id))
+      },
+      onDrop: (e: DragEvent) => {
+        e.preventDefault()
+        const subId =
+          e.dataTransfer.getData('text/omnivvoice-subscriber') || dragSubId
+        setDropOverId(null)
+        setDragSubId(null)
+        if (subId) addSubscriberToConversation(subId, conversationId)
+      },
+    }
   }
 
   function blockSubscriber(subId: string) {
@@ -1093,79 +1191,113 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-2">
-            {tab === 'chats' &&
-              conversations.map((conv) => (
-                <button
-                  key={conv.id}
-                  type="button"
-                  onClick={() => setActiveId(conv.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    setCtxMenu({
-                      x: e.clientX,
-                      y: e.clientY,
-                      type: 'room',
-                      id: conv.id,
-                    })
-                  }}
-                  onTouchStart={(e) => {
-                    const touch = e.touches[0]
-                    const timer = window.setTimeout(() => {
+            {dragSubId ? (
+              <div className="mb-2 rounded-xl border border-dashed border-[var(--accent)]/45 bg-[var(--accent-soft)] px-3 py-2 text-[11px] text-[var(--accent)]">
+                Пусни абоната върху стая по-долу или вдясно
+              </div>
+            ) : null}
+
+            {(tab === 'chats' || dragSubId) &&
+              conversations.map((conv) => {
+                const drop = roomDropHandlers(conv.id)
+                const isDrop = dropOverId === conv.id
+                return (
+                  <button
+                    key={conv.id}
+                    type="button"
+                    onClick={() => setActiveId(conv.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
                       setCtxMenu({
-                        x: touch.clientX,
-                        y: touch.clientY,
+                        x: e.clientX,
+                        y: e.clientY,
                         type: 'room',
                         id: conv.id,
                       })
-                    }, 550)
-                    const clear = () => window.clearTimeout(timer)
-                    e.currentTarget.addEventListener('touchend', clear, {
-                      once: true,
-                    })
-                    e.currentTarget.addEventListener('touchmove', clear, {
-                      once: true,
-                    })
-                  }}
-                  className={`mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left ${
-                    activeId === conv.id
-                      ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/30'
-                      : 'hover:bg-[var(--chip)]'
-                  }`}
-                >
-                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-emerald-700 text-sm font-bold text-white">
-                    {conv.isGroup ? <Users className="h-4 w-4" /> : conv.title.slice(0, 1)}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-semibold">
-                        {conv.title}
+                    }}
+                    onTouchStart={(e) => {
+                      const touch = e.touches[0]
+                      const timer = window.setTimeout(() => {
+                        setCtxMenu({
+                          x: touch.clientX,
+                          y: touch.clientY,
+                          type: 'room',
+                          id: conv.id,
+                        })
+                      }, 550)
+                      const clear = () => window.clearTimeout(timer)
+                      e.currentTarget.addEventListener('touchend', clear, {
+                        once: true,
+                      })
+                      e.currentTarget.addEventListener('touchmove', clear, {
+                        once: true,
+                      })
+                    }}
+                    onDragOver={drop.onDragOver}
+                    onDragLeave={drop.onDragLeave}
+                    onDrop={drop.onDrop}
+                    className={`mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition ${
+                      isDrop
+                        ? 'bg-[var(--accent)] text-[var(--accent-ink)] ring-2 ring-[var(--accent)]'
+                        : activeId === conv.id
+                          ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/30'
+                          : dragSubId
+                            ? 'border border-dashed border-[var(--accent)]/35 hover:bg-[var(--accent-soft)]'
+                            : 'hover:bg-[var(--chip)]'
+                    }`}
+                  >
+                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-emerald-700 text-sm font-bold text-white">
+                      {conv.isGroup ? (
+                        <Users className="h-4 w-4" />
+                      ) : (
+                        conv.title.slice(0, 1)
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-semibold">
+                          {conv.title}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          {conv.muted ? (
+                            <BellOff className="h-3 w-3 text-[var(--muted)]" />
+                          ) : null}
+                          {conv.pinned ? (
+                            <Pin className="h-3 w-3 text-[var(--accent)]" />
+                          ) : null}
+                        </span>
                       </span>
-                      <span className="flex items-center gap-1">
-                        {conv.muted ? (
-                          <BellOff className="h-3 w-3 text-[var(--muted)]" />
-                        ) : null}
-                        {conv.pinned ? (
-                          <Pin className="h-3 w-3 text-[var(--accent)]" />
-                        ) : null}
+                      <span
+                        className={`mt-0.5 block truncate text-xs ${
+                          isDrop ? 'opacity-90' : 'text-[var(--muted)]'
+                        }`}
+                      >
+                        {isDrop
+                          ? 'Пусни тук, за да добавиш'
+                          : dragSubId
+                            ? `${conv.members.length} участници · пусни тук`
+                            : conv.lastMessage}
                       </span>
                     </span>
-                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
-                      {conv.lastMessage}
-                    </span>
-                  </span>
-                  {conv.unread > 0 ? (
-                    <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--accent-ink)]">
-                      {conv.unread}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
+                    {conv.unread > 0 && !dragSubId ? (
+                      <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--accent-ink)]">
+                        {conv.unread}
+                      </span>
+                    ) : null}
+                  </button>
+                )
+              })}
 
             {tab === 'subscribers' &&
               subscribers.map((sub) => (
                 <div
                   key={sub.id}
-                  className="mb-1 flex items-center gap-2 rounded-2xl px-3 py-2.5 hover:bg-[var(--chip)]"
+                  draggable
+                  onDragStart={(e) => onSubscriberDragStart(sub.id, e)}
+                  onDragEnd={onSubscriberDragEnd}
+                  className={`mb-1 flex cursor-grab items-center gap-2 rounded-2xl px-3 py-2.5 active:cursor-grabbing hover:bg-[var(--chip)] ${
+                    dragSubId === sub.id ? 'opacity-50 ring-1 ring-[var(--accent)]' : ''
+                  }`}
                   onContextMenu={(e) => {
                     e.preventDefault()
                     setCtxMenu({
@@ -1175,6 +1307,7 @@ export default function DashboardPage() {
                       id: sub.id,
                     })
                   }}
+                  title="Плъзни към стая, за да добавиш"
                 >
                   <button
                     type="button"
@@ -1183,8 +1316,7 @@ export default function DashboardPage() {
                   >
                     <p className="truncate text-sm font-semibold">{sub.name}</p>
                     <p className="truncate text-xs text-[var(--muted)]">
-                      {presenceLabel(sub.presence || 'offline')} ·{' '}
-                      {sub.source || 'manual'}
+                      {presenceLabel(sub.presence || 'offline')} · плъзни → стая
                     </p>
                   </button>
                   <button
@@ -1268,7 +1400,14 @@ export default function DashboardPage() {
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-col">
+        <section
+          className={`flex min-w-0 flex-col ${
+            dragSubId && active && dropOverId === active.id
+              ? 'ring-2 ring-inset ring-[var(--accent)]'
+              : ''
+          }`}
+          {...(active ? roomDropHandlers(active.id) : {})}
+        >
           {active ? (
             <>
               <div className="flex items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3">
@@ -1282,14 +1421,20 @@ export default function DashboardPage() {
                 >
                   <p className="truncate text-sm font-semibold">{active.title}</p>
                   <p className="truncate text-xs text-[var(--muted)]">
-                    {active.isGroup
-                      ? `${active.members.length} участници`
-                      : presenceLabel(active.members[0]?.presence || 'online')}
-                    {' · '}
-                    чат {active.saveChat ? 'се пази' : 'не се пази'}
-                    {active.disappearAfter !== 'off'
-                      ? ` · изчезва след ${active.disappearAfter}`
-                      : ''}
+                    {dragSubId
+                      ? 'Пусни абоната тук, за да го добавиш'
+                      : active.isGroup
+                        ? `${active.members.length} участници`
+                        : presenceLabel(active.members[0]?.presence || 'online')}
+                    {!dragSubId ? (
+                      <>
+                        {' · '}
+                        чат {active.saveChat ? 'се пази' : 'не се пази'}
+                        {active.disappearAfter !== 'off'
+                          ? ` · изчезва след ${active.disappearAfter}`
+                          : ''}
+                      </>
+                    ) : null}
                   </p>
                 </button>
                 <div className="flex items-center gap-1.5">
@@ -1324,6 +1469,37 @@ export default function DashboardPage() {
                   </button>
                 </div>
               </div>
+
+              {active.members.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--panel-border)] px-4 py-2">
+                  <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    Участници
+                  </span>
+                  {active.members.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-full bg-[var(--chip)] px-2 py-0.5 text-[11px]"
+                      onClick={() => setFriendshipId(m.id)}
+                      title={m.name}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-emerald-700 text-[9px] font-bold text-white">
+                        {m.name.slice(0, 1)}
+                      </span>
+                      {m.name.split(' ')[0]}
+                    </button>
+                  ))}
+                  {dragSubId ? (
+                    <span className="rounded-full border border-dashed border-[var(--accent)]/50 px-2 py-0.5 text-[10px] text-[var(--accent)]">
+                      + пусни тук
+                    </span>
+                  ) : null}
+                </div>
+              ) : dragSubId ? (
+                <div className="border-b border-dashed border-[var(--accent)]/40 bg-[var(--accent-soft)] px-4 py-2 text-center text-[11px] text-[var(--accent)]">
+                  Пусни абоната тук, за да го добавиш в стаята
+                </div>
+              ) : null}
 
               <div className="flex flex-wrap gap-2 border-b border-[var(--panel-border)] px-4 py-2">
                 <label className="inline-flex items-center gap-2 rounded-full bg-[var(--chip)] px-3 py-1 text-[11px]">
@@ -1473,7 +1649,9 @@ export default function DashboardPage() {
               <MessageCircle className="h-8 w-8 text-[var(--accent)]" />
               <p className="mt-3 text-sm font-semibold">Няма избрана стая</p>
               <p className="mt-1 text-xs text-[var(--muted)]">
-                Създай нова стая с богатите опции или избери разговор вляво
+                {dragSubId
+                  ? 'Пусни абоната върху стая вляво'
+                  : 'Създай нова стая с богатите опции или избери разговор вляво'}
               </p>
               <button
                 type="button"
@@ -1487,6 +1665,12 @@ export default function DashboardPage() {
           )}
         </section>
       </div>
+
+      {dragToast ? (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[90] -translate-x-1/2 rounded-full bg-[var(--foreground)] px-4 py-2 text-xs font-semibold text-[var(--background)] shadow-lg">
+          {dragToast}
+        </div>
+      ) : null}
 
       <CreateRoomWizard
         open={createRoomOpen}

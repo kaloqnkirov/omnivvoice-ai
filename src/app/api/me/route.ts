@@ -9,7 +9,7 @@ export async function GET() {
   try {
     const session = await getSessionUser()
     if (!session) {
-      return NextResponse.json({ backend: true, user: null }, { status: 401 })
+      return NextResponse.json({ backend: true, user: null })
     }
     return NextResponse.json({ backend: true, user: session.user })
   } catch (error) {

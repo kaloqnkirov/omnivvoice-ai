@@ -2,9 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isBackendEnabled } from '@/lib/backend'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 
+function normalizeCode(raw: string | undefined) {
+  return (raw || '').trim().replace(/^#/, '')
+}
+
 export async function POST(request: NextRequest) {
   if (!isBackendEnabled()) {
-    return NextResponse.json({ error: 'Backend not configured' }, { status: 503 })
+    return NextResponse.json(
+      { error: 'Сървърът не е конфигуриран' },
+      { status: 503 }
+    )
   }
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -17,50 +24,71 @@ export async function POST(request: NextRequest) {
 
   const displayName = body.displayName?.trim()
   const language = body.language?.trim() || 'bg'
-  const guestId = body.guestId || `guest_${crypto.randomUUID().replace(/-/g, '')}`
+  const guestId =
+    body.guestId?.trim() || `guest_${crypto.randomUUID().replace(/-/g, '')}`
+  const code = normalizeCode(body.code)
+  const siteKey = body.siteKey?.trim()
 
   if (!displayName) {
-    return NextResponse.json({ error: 'Name required' }, { status: 400 })
+    return NextResponse.json({ error: 'Въведи име или псевдоним' }, { status: 400 })
   }
 
   try {
     const admin = getSupabaseAdmin()
     let roomId: string | null = null
-    let inviteCode = body.code || ''
+    let inviteCode = code
     let channel: 'chat' | 'call' | 'both' = 'both'
     let prefillName: string | null = null
     let prefillLanguage: string | null = null
 
-    if (body.code) {
-      const { data: invite } = await admin
+    if (code) {
+      const { data: invite, error: inviteError } = await admin
         .from('invites')
         .select('*')
-        .eq('code', body.code)
+        .eq('code', code)
         .eq('active', true)
         .maybeSingle()
 
+      if (inviteError) {
+        return NextResponse.json(
+          { error: `Грешка при проверка на поканата: ${inviteError.message}` },
+          { status: 500 }
+        )
+      }
       if (!invite) {
-        return NextResponse.json({ error: 'Invalid invite' }, { status: 404 })
+        return NextResponse.json(
+          {
+            error:
+              'Поканата е невалидна или деактивирана. Помоли хоста за нов линк.',
+          },
+          { status: 404 }
+        )
       }
       roomId = invite.room_id
       channel = invite.channel
       prefillName = invite.prefill_name
       prefillLanguage = invite.prefill_language
       inviteCode = invite.code
-    } else if (body.siteKey) {
+    } else if (siteKey) {
       const { data: widget } = await admin
         .from('site_widgets')
         .select('*')
-        .eq('site_key', body.siteKey)
+        .eq('site_key', siteKey)
         .eq('active', true)
         .maybeSingle()
       if (!widget?.room_id) {
-        return NextResponse.json({ error: 'Invalid site key' }, { status: 404 })
+        return NextResponse.json(
+          { error: 'Невалиден ключ за сайт' },
+          { status: 404 }
+        )
       }
       roomId = widget.room_id
-      inviteCode = `site_${body.siteKey}`
+      inviteCode = `site_${siteKey}`
     } else {
-      return NextResponse.json({ error: 'Invite or site key required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Липсва код на покана' },
+        { status: 400 }
+      )
     }
 
     const { data: room } = await admin
@@ -70,22 +98,49 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (!room) {
-      return NextResponse.json({ error: 'Room not found' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'Стаята не е намерена. Помоли хоста за нова покана.' },
+        { status: 404 }
+      )
     }
     if (!room.session_open) {
-      return NextResponse.json({ error: 'Host ended the session' }, { status: 403 })
+      return NextResponse.json(
+        { error: 'Хостът е приключил сесията. Нужна е нова покана.' },
+        { status: 403 }
+      )
     }
 
-    await admin.from('room_participants').insert({
-      room_id: room.id,
-      guest_id: guestId,
-      display_name: displayName,
-      language: prefillLanguage || language,
-      role: 'guest',
-      is_active: true,
-    })
+    const { error: participantError } = await admin
+      .from('room_participants')
+      .insert({
+        room_id: room.id,
+        guest_id: guestId,
+        display_name: displayName,
+        language: language || prefillLanguage || 'bg',
+        role: 'guest',
+        is_active: true,
+      })
 
-    // Re-open if needed
+    if (participantError) {
+      // Allow re-join with same guest id
+      if (!participantError.message.toLowerCase().includes('duplicate')) {
+        return NextResponse.json(
+          { error: `Неуспешен вход: ${participantError.message}` },
+          { status: 500 }
+        )
+      }
+      await admin
+        .from('room_participants')
+        .update({
+          display_name: displayName,
+          language: language || prefillLanguage || 'bg',
+          is_active: true,
+          left_at: null,
+        })
+        .eq('room_id', room.id)
+        .eq('guest_id', guestId)
+    }
+
     await admin
       .from('rooms')
       .update({ session_open: true, updated_at: new Date().toISOString() })
@@ -97,10 +152,10 @@ export async function POST(request: NextRequest) {
       livekitRoom: room.livekit_room,
       channel,
       displayName,
-      language: prefillLanguage || language,
+      language: language || prefillLanguage || 'bg',
       inviteCode,
       prefillName,
-      sessionOpen: room.session_open,
+      sessionOpen: true,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Join failed'
@@ -112,7 +167,9 @@ export async function GET(request: NextRequest) {
   if (!isBackendEnabled()) {
     return NextResponse.json({ backend: false })
   }
-  const code = request.nextUrl.searchParams.get('code')
+  const code = normalizeCode(
+    request.nextUrl.searchParams.get('code') || undefined
+  )
   if (!code) {
     return NextResponse.json({ error: 'code required' }, { status: 400 })
   }
@@ -120,11 +177,16 @@ export async function GET(request: NextRequest) {
     const admin = getSupabaseAdmin()
     const { data: invite } = await admin
       .from('invites')
-      .select('code, label, channel, prefill_name, prefill_language, active, room_id, rooms(session_open, title)')
+      .select(
+        'code, label, channel, prefill_name, prefill_language, active, room_id, rooms(session_open, title)'
+      )
       .eq('code', code)
       .maybeSingle()
     if (!invite || !invite.active) {
-      return NextResponse.json({ error: 'Invalid invite' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'Поканата е невалидна или деактивирана' },
+        { status: 404 }
+      )
     }
     return NextResponse.json({ invite, backend: true })
   } catch (error) {

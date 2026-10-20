@@ -14,6 +14,7 @@ import {
   Sparkles,
   Video,
 } from 'lucide-react'
+import EmojiPicker from '@/components/EmojiPicker'
 import { APP_LANGUAGES, getLanguage } from '@/lib/languages'
 import { buildSmartReplies, presenceLabel } from '@/lib/smart-replies'
 import { translateText } from '@/lib/translation'
@@ -100,8 +101,6 @@ const SEED_MESSAGES: ChatMessage[] = [
     status: 'delivered',
   },
 ]
-
-const EMOJIS = ['😀', '🔥', '👍', '❤️', '🙌', '😂', '🎯', '🚀']
 
 type MessengerChatProps = {
   myLanguage: string
@@ -497,36 +496,28 @@ export default function MessengerChat({
             </div>
           ) : null}
 
-          {showEmoji ? (
-            <div className="mb-2 flex flex-wrap gap-1 rounded-xl bg-[var(--chip)] p-2">
-              {EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  className="rounded-lg px-2 py-1 text-lg hover:bg-[var(--panel)]"
-                  onClick={() => setDraft((d) => `${d}${emoji}`)}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="flex items-end gap-2">
+          <div className="relative flex items-end gap-2">
             <button type="button" className="ov-icon-btn" title="Прикачи файл">
               <Paperclip className="h-4 w-4" />
             </button>
             <button type="button" className="ov-icon-btn" title="Снимка">
               <ImagePlus className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              className="ov-icon-btn"
-              title="Емоджи"
-              onClick={() => setShowEmoji((v) => !v)}
-            >
-              <Smile className="h-4 w-4" />
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                className="ov-icon-btn"
+                title="Емоджи"
+                onClick={() => setShowEmoji((v) => !v)}
+              >
+                <Smile className="h-4 w-4" />
+              </button>
+              <EmojiPicker
+                open={showEmoji}
+                onClose={() => setShowEmoji(false)}
+                onPick={(emoji) => setDraft((d) => `${d}${emoji}`)}
+              />
+            </div>
             <button type="button" className="ov-icon-btn" title="Гласово съобщение">
               <Mic className="h-4 w-4" />
             </button>

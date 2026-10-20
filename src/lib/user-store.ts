@@ -84,6 +84,11 @@ export type RoomSettings = {
   recordingQuality: '720p' | '1080p' | '4k'
   dualTrackRecording: boolean
   lobbyMusic: boolean
+  /** Virtual office plate id from STUDIO_ROOMS */
+  studioRoomId: string
+  customBackground: string | null
+  videoFilter: 'none' | 'cinema' | 'warm' | 'cool' | 'soft' | 'vivid' | 'noir'
+  videoQuality: 'auto' | '360p' | '720p' | '1080p'
 }
 
 export type ChatSettings = {
@@ -291,6 +296,10 @@ export const DEFAULT_ROOM: RoomSettings = {
   recordingQuality: '1080p',
   dualTrackRecording: true,
   lobbyMusic: true,
+  studioRoomId: 'glass-office',
+  customBackground: null,
+  videoFilter: 'none',
+  videoQuality: '1080p',
 }
 
 export const DEFAULT_CHAT: ChatSettings = {

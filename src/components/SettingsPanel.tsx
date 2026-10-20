@@ -659,6 +659,43 @@ export default function SettingsPanel({
                     <option value={60}>60 fps</option>
                   </select>
                 </Field>
+                <Field label="Live video quality">
+                  <select
+                    className="ov-field"
+                    value={prefs.room.videoQuality || '1080p'}
+                    onChange={(e) =>
+                      patchRoom({
+                        videoQuality: e.target
+                          .value as RoomSettings['videoQuality'],
+                      })
+                    }
+                  >
+                    <option value="auto">Auto HD</option>
+                    <option value="360p">360p · пести трафик</option>
+                    <option value="720p">720p HD</option>
+                    <option value="1080p">1080p Full HD</option>
+                  </select>
+                </Field>
+                <Field label="Video filter">
+                  <select
+                    className="ov-field"
+                    value={prefs.room.videoFilter || 'none'}
+                    onChange={(e) =>
+                      patchRoom({
+                        videoFilter: e.target
+                          .value as RoomSettings['videoFilter'],
+                      })
+                    }
+                  >
+                    <option value="none">Без филтър</option>
+                    <option value="cinema">Cinema</option>
+                    <option value="warm">Топъл</option>
+                    <option value="cool">Студен</option>
+                    <option value="soft">Мек</option>
+                    <option value="vivid">Ярък</option>
+                    <option value="noir">Noir</option>
+                  </select>
+                </Field>
                 <Field label="Recording quality">
                   <select
                     className="ov-field"

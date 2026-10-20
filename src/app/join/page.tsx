@@ -119,16 +119,22 @@ function JoinInner() {
         return
       }
 
+      // Backend is preferred for invite codes — if we reach here without backend,
+      // require a local invite match so guests don't hit demo rooms by accident.
+      if (inviteCode && role === 'invite' && !invite) {
+        setError(
+          backend
+            ? 'Сървърът не отговори. Опитай отново или помоли хоста за нов линк.'
+            : 'Поканата е невалидна. Увери се, че хостът е създал линк от дашборда.'
+        )
+        return
+      }
       if (!conversationId) {
         setError('Невалиден линк — липсва разговор/стая.')
         return
       }
       if (conversation && conversation.sessionOpen === false) {
         setError('Хостът е приключил сесията. Линкът вече не е активен.')
-        return
-      }
-      if (inviteCode && !invite && role === 'invite') {
-        setError('Поканата е невалидна или деактивирана.')
         return
       }
 

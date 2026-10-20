@@ -15,11 +15,40 @@ export async function getSessionUser(): Promise<{
   } = await supabase.auth.getUser()
   if (!user?.email) return null
 
-  const { data: profile } = await supabase
+  let { data: profile } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .maybeSingle()
+
+  // Signup trigger can lag / miss — ensure a profile row exists (needed for invites FK).
+  if (!profile) {
+    try {
+      const admin = getSupabaseAdmin()
+      const fullName =
+        (user.user_metadata?.full_name as string | undefined)?.trim() ||
+        user.email.split('@')[0] ||
+        'User'
+      const displayName = fullName.split(' ')[0] || 'User'
+      const { data: created } = await admin
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          email: user.email,
+          full_name: fullName,
+          display_name: displayName,
+          plan: 'free',
+          plan_paid: true,
+          native_language:
+            (user.user_metadata?.native_language as string | undefined) || 'bg',
+        })
+        .select('*')
+        .single()
+      profile = created
+    } catch {
+      return null
+    }
+  }
 
   if (!profile) return null
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isBackendEnabled, appUrl } from '@/lib/backend'
 import { getSessionUser } from '@/lib/auth/get-user'
 import { createClient } from '@/lib/supabase/server'
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 
 function makeCode() {
   return `ov_${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`
@@ -34,7 +35,10 @@ export async function POST(request: NextRequest) {
   }
   const session = await getSessionUser()
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json(
+      { error: 'Влез в акаунта си, за да създадеш покана.' },
+      { status: 401 }
+    )
   }
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -47,12 +51,13 @@ export async function POST(request: NextRequest) {
     roomTitle?: string
   }
 
-  const supabase = await createClient()
+  // Use service role so missing RLS / profile lag cannot break invite create.
+  const admin = getSupabaseAdmin()
   let roomId = body.roomId
 
   if (!roomId && body.createRoom !== false) {
     const livekitRoom = `ov_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
-    const { data: room, error } = await supabase
+    const { data: room, error } = await admin
       .from('rooms')
       .insert({
         host_id: session.user.id,
@@ -65,12 +70,16 @@ export async function POST(request: NextRequest) {
       .single()
     if (error || !room) {
       return NextResponse.json(
-        { error: error?.message || 'Room create failed' },
+        {
+          error:
+            error?.message ||
+            'Неуспешно създаване на стая. Провери профила и Supabase.',
+        },
         { status: 500 }
       )
     }
     roomId = room.id
-    await supabase.from('room_participants').insert({
+    await admin.from('room_participants').insert({
       room_id: room.id,
       user_id: session.user.id,
       display_name: session.user.displayName,
@@ -84,8 +93,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'roomId required' }, { status: 400 })
   }
 
+  // Verify room belongs to host (or exists)
+  const { data: existingRoom } = await admin
+    .from('rooms')
+    .select('id, host_id, session_open')
+    .eq('id', roomId)
+    .maybeSingle()
+
+  if (!existingRoom) {
+    return NextResponse.json({ error: 'Стаята не е намерена' }, { status: 404 })
+  }
+  if (existingRoom.host_id !== session.user.id && !session.user.isAdmin) {
+    return NextResponse.json({ error: 'Нямаш достъп до тази стая' }, { status: 403 })
+  }
+
+  // Ensure session is open for guests
+  if (!existingRoom.session_open) {
+    await admin
+      .from('rooms')
+      .update({ session_open: true, updated_at: new Date().toISOString() })
+      .eq('id', roomId)
+  }
+
   const code = makeCode()
-  const { data: invite, error } = await supabase
+  const { data: invite, error } = await admin
     .from('invites')
     .insert({
       code,
@@ -102,7 +133,11 @@ export async function POST(request: NextRequest) {
 
   if (error || !invite) {
     return NextResponse.json(
-      { error: error?.message || 'Invite failed' },
+      {
+        error:
+          error?.message ||
+          'Поканата не можа да се създаде. Опитай отново след вход.',
+      },
       { status: 500 }
     )
   }

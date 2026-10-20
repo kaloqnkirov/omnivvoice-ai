@@ -7,16 +7,20 @@ import {
   ArrowLeft,
   Camera,
   CameraOff,
+  Image as ImageIcon,
   Mic,
   MicOff,
   PhoneOff,
   Settings2,
+  Smile,
   Sparkles,
   Subtitles,
   Video,
 } from 'lucide-react'
+import EmojiPicker from '@/components/EmojiPicker'
 import LiveKitStage from '@/components/LiveKitStage'
 import SettingsPanel from '@/components/SettingsPanel'
+import VirtualRoomSelector from '@/components/VirtualRoomSelector'
 import { isClientBackendEnabled } from '@/lib/auth-client'
 import {
   clearGuestSession,
@@ -24,6 +28,12 @@ import {
 } from '@/lib/guest-session'
 import { useRoomSync } from '@/hooks/useRoomSync'
 import { getLanguage } from '@/lib/languages'
+import {
+  VIDEO_FILTERS,
+  VIDEO_QUALITY,
+  type VideoFilterId,
+  type VideoQualityId,
+} from '@/lib/studio-rooms'
 import { useTheme } from '@/lib/theme'
 import { useLiveTranslation } from '@/lib/translation'
 import type { Conversation } from '@/lib/auth-types'
@@ -65,6 +75,9 @@ function RoomInner() {
   const [translationOn, setTranslationOn] = useState(true)
   const [subtitlesOn, setSubtitlesOn] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [studioOpen, setStudioOpen] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [kicked, setKicked] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
 
@@ -87,7 +100,6 @@ function RoomInner() {
     tone: prefs.voice.tone,
   })
 
-  // Guests kicked when host ends (local or remote)
   useEffect(() => {
     if (!hydrated || !isGuest) return
     if (useBackendRoom) {
@@ -177,6 +189,10 @@ function RoomInner() {
     })
   }
 
+  function patchRoom(patch: Partial<typeof prefs.room>) {
+    updatePrefs({ room: { ...prefs.room, ...patch } })
+  }
+
   async function endAsHost() {
     if (useBackendRoom) {
       await endSession()
@@ -224,12 +240,29 @@ function RoomInner() {
 
   async function sendChat() {
     const text = chatDraft.trim()
-    if (!text || !useBackendRoom) return
-    setChatDraft('')
-    await sendMessage({
+    if (!text) return
+    if (useBackendRoom) {
+      setChatDraft('')
+      await sendMessage({
+        text,
+        guestId: guest?.guestId,
+        guestName: guest?.displayName,
+      })
+      return
+    }
+    if (!conv) return
+    const msg = {
+      id: `m_${Date.now()}`,
+      fromMe: !isGuest,
       text,
-      guestId: guest?.guestId,
-      guestName: guest?.displayName,
+      createdAt: new Date().toISOString(),
+      status: 'sent' as const,
+    }
+    setChatDraft('')
+    patchConv({
+      messages: [...(conv.messages || []), msg],
+      lastMessage: text,
+      updatedAt: new Date().toISOString(),
     })
   }
 
@@ -263,6 +296,8 @@ function RoomInner() {
   const youName = isGuest
     ? guest?.displayName || 'Guest'
     : user?.displayName || 'Ти'
+
+  const localMessages = conv?.messages || []
 
   return (
     <div className="flex min-h-screen flex-col px-4 py-4">
@@ -328,7 +363,7 @@ function RoomInner() {
       ) : (
         <p className="mx-auto mt-3 w-full max-w-6xl text-xs text-[var(--muted)]">
           {isGuest
-            ? 'Гост режим: чат/обаждане с превод. Без настройки и без админ права.'
+            ? 'Гост режим: чат/обаждане с превод. Без админ права.'
             : 'Сървърна стая — гостите се синхронизират в реално време.'}
         </p>
       )}
@@ -341,6 +376,15 @@ function RoomInner() {
             guestId={guest?.guestId}
             micOn={micOn}
             cameraOn={cameraOn}
+            studioRoomId={prefs.room.studioRoomId}
+            customBackground={prefs.room.customBackground}
+            videoFilter={prefs.room.videoFilter}
+            videoQuality={prefs.room.videoQuality}
+            mirrorVideo={prefs.room.mirrorVideo}
+            noiseSuppression={prefs.room.noiseSuppression}
+            echoCancellation={prefs.room.echoCancellation}
+            autoGainControl={prefs.room.autoGainControl}
+            frameRate={prefs.room.frameRate}
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -348,6 +392,14 @@ function RoomInner() {
               <article
                 key={person.id}
                 className="relative min-h-[180px] overflow-hidden rounded-2xl border border-white/15 bg-black/30 p-3 backdrop-blur"
+                style={{
+                  backgroundImage: `linear-gradient(180deg,rgba(0,0,0,0.45),rgba(0,0,0,0.65)), url(${
+                    prefs.room.customBackground ||
+                    `https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80`
+                  })`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -372,35 +424,57 @@ function RoomInner() {
           </div>
         )}
 
-        {useBackendRoom ? (
-          <div className="rounded-2xl border border-white/10 bg-black/40 p-3">
-            <div className="mb-2 max-h-32 space-y-1 overflow-y-auto text-xs text-white/90">
-              {remoteMessages.slice(-30).map((msg) => (
-                <p key={msg.id}>
-                  <span className="text-white/50">{msg.sender_name}: </span>
-                  {msg.body}
-                </p>
-              ))}
-            </div>
-            <form
-              className="flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void sendChat()
-              }}
-            >
-              <input
-                className="ov-field flex-1 !bg-white/10 !text-white"
-                value={chatDraft}
-                onChange={(e) => setChatDraft(e.target.value)}
-                placeholder="Съобщение…"
-              />
-              <button type="submit" className="ov-btn-primary !px-3">
-                Send
-              </button>
-            </form>
+        <div className="relative rounded-2xl border border-white/10 bg-black/40 p-3">
+          <div className="mb-2 max-h-32 space-y-1 overflow-y-auto text-xs text-white/90">
+            {useBackendRoom
+              ? remoteMessages.slice(-30).map((msg) => (
+                  <p key={msg.id}>
+                    <span className="text-white/50">{msg.sender_name}: </span>
+                    {msg.body}
+                  </p>
+                ))
+              : localMessages.slice(-30).map((msg) => (
+                  <p key={msg.id}>
+                    <span className="text-white/50">
+                      {msg.fromMe ? youName : 'Участник'}:{' '}
+                    </span>
+                    {msg.text}
+                  </p>
+                ))}
           </div>
-        ) : null}
+          <form
+            className="flex items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void sendChat()
+            }}
+          >
+            <div className="relative">
+              <button
+                type="button"
+                className="ov-icon-btn !text-white"
+                title="Емоджи"
+                onClick={() => setEmojiOpen((v) => !v)}
+              >
+                <Smile className="h-4 w-4" />
+              </button>
+              <EmojiPicker
+                open={emojiOpen}
+                onClose={() => setEmojiOpen(false)}
+                onPick={(emoji) => setChatDraft((d) => `${d}${emoji}`)}
+              />
+            </div>
+            <input
+              className="ov-field flex-1 !bg-white/10 !text-white"
+              value={chatDraft}
+              onChange={(e) => setChatDraft(e.target.value)}
+              placeholder="Съобщение…"
+            />
+            <button type="submit" className="ov-btn-primary !px-3">
+              Send
+            </button>
+          </form>
+        </div>
 
         {subtitlesOn && translationOn ? (
           <div className="space-y-1.5">
@@ -419,7 +493,7 @@ function RoomInner() {
         ) : null}
 
         <div className="flex justify-center">
-          <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/15 bg-black/70 px-3 py-2.5 backdrop-blur-xl">
+          <div className="relative flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/15 bg-black/70 px-3 py-2.5 backdrop-blur-xl">
             <Ctrl
               active={micOn}
               label="Mic"
@@ -444,6 +518,19 @@ function RoomInner() {
               onClick={() => setSubtitlesOn((v) => !v)}
               icon={Subtitles}
             />
+            <Ctrl
+              active={studioOpen}
+              label="Фон"
+              onClick={() => setStudioOpen(true)}
+              icon={ImageIcon}
+            />
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-2.5 py-2 text-[11px] font-medium text-white ring-1 ring-white/15"
+            >
+              Филтри / HD
+            </button>
             <button
               type="button"
               onClick={() => void (isGuest ? leaveAsGuest() : endAsHost())}
@@ -452,9 +539,73 @@ function RoomInner() {
               <PhoneOff className="h-3.5 w-3.5" />
               {isGuest ? 'Leave' : 'End · kick guests'}
             </button>
+
+            {filtersOpen ? (
+              <div className="absolute bottom-full left-1/2 z-20 mb-2 w-[min(92vw,420px)] -translate-x-1/2 space-y-3 rounded-2xl border border-white/15 bg-[#0d121c] p-3 shadow-2xl">
+                <div>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Видео качество
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.keys(VIDEO_QUALITY) as VideoQualityId[]).map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => patchRoom({ videoQuality: id })}
+                        className={`rounded-full px-2.5 py-1 text-[11px] ${
+                          prefs.room.videoQuality === id
+                            ? 'bg-indigo-500 text-white'
+                            : 'bg-white/5 text-slate-300'
+                        }`}
+                      >
+                        {VIDEO_QUALITY[id].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Филтър
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {VIDEO_FILTERS.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() =>
+                          patchRoom({ videoFilter: f.id as VideoFilterId })
+                        }
+                        className={`rounded-full px-2.5 py-1 text-[11px] ${
+                          prefs.room.videoFilter === f.id
+                            ? 'bg-indigo-500 text-white'
+                            : 'bg-white/5 text-slate-300'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </main>
+
+      <VirtualRoomSelector
+        open={studioOpen}
+        activeRoomId={prefs.room.studioRoomId}
+        customBackground={prefs.room.customBackground}
+        onClose={() => setStudioOpen(false)}
+        onSelect={(roomId) => {
+          patchRoom({ studioRoomId: roomId, customBackground: null })
+          setStudioOpen(false)
+        }}
+        onCustomUpload={(dataUrl) => {
+          patchRoom({ customBackground: dataUrl })
+          setStudioOpen(false)
+        }}
+      />
 
       {!isGuest ? (
         <SettingsPanel

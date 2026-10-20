@@ -88,3 +88,42 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
   return NextResponse.json({ room })
 }
+
+export async function DELETE(_request: NextRequest, { params }: Params) {
+  if (!isBackendEnabled()) {
+    return NextResponse.json({ error: 'Backend not configured' }, { status: 503 })
+  }
+  const session = await getSessionUser()
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const { id } = await params
+
+  try {
+    const admin = getSupabaseAdmin()
+    const { data: room } = await admin
+      .from('rooms')
+      .select('id, host_id')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (!room) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    if (room.host_id !== session.user.id && !session.user.isAdmin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    await admin.from('invites').delete().eq('room_id', id)
+    await admin.from('messages').delete().eq('room_id', id)
+    await admin.from('room_participants').delete().eq('room_id', id)
+    const { error } = await admin.from('rooms').delete().eq('id', id)
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Delete failed'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}

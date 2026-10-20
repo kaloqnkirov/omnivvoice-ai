@@ -69,6 +69,7 @@ export type Conversation = {
   /** Host-controlled session — when false, guests are kicked */
   sessionOpen: boolean
   activeGuestIds: string[]
+  archived?: boolean
 }
 
 export type InviteLink = {

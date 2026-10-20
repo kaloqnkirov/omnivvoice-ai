@@ -9,6 +9,10 @@ import type {
 } from '@/lib/auth-types'
 import type { PlanId } from '@/lib/languages'
 import type { StreamPlatformId } from '@/lib/platforms'
+import {
+  DEFAULT_PROFILE_SOCIAL,
+  type ProfileSocial,
+} from '@/lib/profile-social'
 
 export type ContactMethod = 'email' | 'phone'
 
@@ -228,9 +232,10 @@ export type AppPreferences = {
   music: MusicSettings
   experience: ExperienceSettings
   presence: PresenceStatus
+  profileSocial: ProfileSocial
 }
 
-const STORAGE_KEY = 'omnivvoice.preferences.v5'
+const STORAGE_KEY = 'omnivvoice.preferences.v6'
 
 function emptyPlatform(): PlatformConnection {
   return {
@@ -584,6 +589,7 @@ function defaults(): AppPreferences {
     music: DEFAULT_MUSIC,
     experience: DEFAULT_EXPERIENCE,
     presence: 'online',
+    profileSocial: DEFAULT_PROFILE_SOCIAL,
   }
 }
 
@@ -593,6 +599,7 @@ export function loadPreferences(): AppPreferences {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ||
+      window.localStorage.getItem('omnivvoice.preferences.v5') ||
       window.localStorage.getItem('omnivvoice.preferences.v4') ||
       window.localStorage.getItem('omnivvoice.preferences.v3') ||
       window.localStorage.getItem('omnivvoice.preferences.v2') ||
@@ -628,6 +635,7 @@ export function loadPreferences(): AppPreferences {
         sessionOpen:
           typeof conv.sessionOpen === 'boolean' ? conv.sessionOpen : true,
         activeGuestIds: conv.activeGuestIds || [],
+        archived: Boolean((conv as Conversation & { archived?: boolean }).archived),
       })),
       invites: parsed.invites || [],
       socialLinks: parsed.socialLinks?.length
@@ -656,6 +664,11 @@ export function loadPreferences(): AppPreferences {
             : DEFAULT_PHRASEBOOK,
       },
       presence: parsed.presence || 'online',
+      profileSocial: {
+        ...DEFAULT_PROFILE_SOCIAL,
+        ...(parsed.profileSocial || {}),
+        stories: parsed.profileSocial?.stories || [],
+      },
     }
   } catch {
     return defaults()

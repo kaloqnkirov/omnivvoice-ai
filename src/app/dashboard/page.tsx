@@ -2,22 +2,26 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  Archive,
   Ban,
+  BellOff,
   ChevronDown,
+  Copy,
   Headphones,
-  ImagePlus,
+  Link2,
   LogOut,
   MessageCircle,
   Moon,
-  Link2,
   MoreHorizontal,
+  Pencil,
   Phone,
   Pin,
   Search,
   Settings2,
   Sun,
+  Trash2,
   UserPlus,
   Users,
   Video,
@@ -26,6 +30,8 @@ import {
 } from 'lucide-react'
 import ChatComposer from '@/components/ChatComposer'
 import ContactImportModal from '@/components/ContactImportModal'
+import ContextMenu, { type ContextMenuItem } from '@/components/ContextMenu'
+import ProfileHub from '@/components/ProfileHub'
 import RichMessageBubble from '@/components/RichMessageBubble'
 import SettingsPanel from '@/components/SettingsPanel'
 import type { Conversation, ConversationMessage, InviteLink } from '@/lib/auth-types'
@@ -35,6 +41,7 @@ import {
   isClientBackendEnabled,
   signOutBackend,
 } from '@/lib/auth-client'
+import { activeStories, getMood } from '@/lib/profile-social'
 import { presenceLabel } from '@/lib/smart-replies'
 import { useTheme } from '@/lib/theme'
 
@@ -50,11 +57,21 @@ export default function DashboardPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [inviteCopied, setInviteCopied] = useState(false)
   const [tab, setTab] = useState<'chats' | 'subscribers' | 'blocked'>('chats')
-  const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'groups'>('all')
+  const [inboxFilter, setInboxFilter] = useState<
+    'all' | 'unread' | 'groups' | 'archived'
+  >('all')
   const [replyPreview, setReplyPreview] = useState<string | null>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number
+    y: number
+    type: 'room' | 'subscriber'
+    id: string
+  } | null>(null)
   const admin = isAdminUser(user)
   const fullAccess = hasFullAccess(user)
+  const mood = getMood(prefs.profileSocial?.moodId)
+  const myStories = activeStories(prefs.profileSocial?.stories || [])
 
   useEffect(() => {
     if (!hydrated) return
@@ -93,8 +110,13 @@ export default function DashboardPage() {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
       return b.updatedAt.localeCompare(a.updatedAt)
     })
-    if (inboxFilter === 'unread') list = list.filter((c) => c.unread > 0)
-    if (inboxFilter === 'groups') list = list.filter((c) => c.isGroup)
+    if (inboxFilter === 'archived') {
+      list = list.filter((c) => c.archived)
+    } else {
+      list = list.filter((c) => !c.archived)
+      if (inboxFilter === 'unread') list = list.filter((c) => c.unread > 0)
+      if (inboxFilter === 'groups') list = list.filter((c) => c.isGroup)
+    }
     if (!q) return list
     return list.filter((item) => item.title.toLowerCase().includes(q))
   }, [prefs.conversations, query, inboxFilter])
@@ -212,24 +234,236 @@ export default function DashboardPage() {
           id: sub.id,
           name: sub.name,
           reason: 'Ръчно блокиран',
-          blockedAt: '2026-10-19T15:00:00.000Z',
+          blockedAt: new Date().toISOString(),
         },
         ...prefs.blocked,
       ],
     })
   }
 
-  function onAvatar(file?: File | null) {
-    if (!file || !user) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        updatePrefs({
-          user: { ...user, avatarDataUrl: reader.result },
-        })
+  function removeSubscriber(subId: string) {
+    if (!window.confirm('Премахни абоната от списъка?')) return
+    updatePrefs({
+      subscribers: prefs.subscribers.filter((item) => item.id !== subId),
+    })
+  }
+
+  async function deleteRoom(roomId: string) {
+    if (!window.confirm('Изтрий стаята завинаги? Това маха чата и поканите.')) {
+      return
+    }
+    if (isClientBackendEnabled() && /^[0-9a-f-]{36}$/i.test(roomId)) {
+      const res = await fetch(`/api/rooms/${roomId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string }
+        window.alert(data.error || 'Неуспешно изтриване от сървъра')
+        return
       }
     }
-    reader.readAsDataURL(file)
+    const next = prefs.conversations.filter((c) => c.id !== roomId)
+    updatePrefs({
+      conversations: next,
+      invites: (prefs.invites || []).filter((i) => i.conversationId !== roomId),
+    })
+    if (activeId === roomId) setActiveId(next[0]?.id || '')
+  }
+
+  async function renameRoom(roomId: string) {
+    const conv = prefs.conversations.find((c) => c.id === roomId)
+    if (!conv) return
+    const title = window.prompt('Ново име на стаята', conv.title)
+    if (!title?.trim()) return
+    patchConversation(roomId, { title: title.trim() })
+    if (isClientBackendEnabled() && /^[0-9a-f-]{36}$/i.test(roomId)) {
+      await fetch(`/api/rooms/${roomId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ title: title.trim() }),
+      })
+    }
+  }
+
+  async function endRoomSession(roomId: string) {
+    patchConversation(roomId, { sessionOpen: false, activeGuestIds: [] })
+    if (isClientBackendEnabled() && /^[0-9a-f-]{36}$/i.test(roomId)) {
+      await fetch(`/api/rooms/${roomId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ session_open: false }),
+      })
+    }
+  }
+
+  function roomContextItems(roomId: string): ContextMenuItem[] {
+    const conv = prefs.conversations.find((c) => c.id === roomId)
+    if (!conv) return []
+    return [
+      {
+        id: 'open',
+        label: 'Отвори',
+        icon: MessageCircle,
+        onClick: () => {
+          setActiveId(roomId)
+          setTab('chats')
+        },
+      },
+      {
+        id: 'enter',
+        label: 'Влез в стаята',
+        icon: Video,
+        onClick: () => router.push(`/room/${roomId}?video=1`),
+      },
+      {
+        id: 'invite',
+        label: 'Покани гост',
+        icon: Link2,
+        onClick: () => void createInvite(undefined, roomId),
+      },
+      { id: 'sep1', label: '', separator: true },
+      {
+        id: 'pin',
+        label: conv.pinned ? 'Unpin' : 'Pin',
+        icon: Pin,
+        onClick: () => patchConversation(roomId, { pinned: !conv.pinned }),
+      },
+      {
+        id: 'mute',
+        label: conv.muted ? 'Unmute' : 'Mute',
+        icon: BellOff,
+        onClick: () => patchConversation(roomId, { muted: !conv.muted }),
+      },
+      {
+        id: 'unread',
+        label: 'Маркирай като непрочетено',
+        icon: MessageCircle,
+        onClick: () => patchConversation(roomId, { unread: Math.max(1, conv.unread) }),
+      },
+      {
+        id: 'rename',
+        label: 'Преименувай',
+        icon: Pencil,
+        onClick: () => void renameRoom(roomId),
+      },
+      {
+        id: 'archive',
+        label: conv.archived ? 'Извади от архив' : 'Архивирай',
+        icon: Archive,
+        onClick: () =>
+          patchConversation(roomId, { archived: !conv.archived }),
+      },
+      { id: 'sep2', label: '', separator: true },
+      {
+        id: 'end',
+        label: 'Приключи сесия (kick гости)',
+        icon: Phone,
+        onClick: () => void endRoomSession(roomId),
+      },
+      {
+        id: 'copy',
+        label: 'Копирай room id',
+        icon: Copy,
+        onClick: () => void navigator.clipboard.writeText(roomId),
+      },
+      {
+        id: 'delete',
+        label: 'Изтрий стаята',
+        icon: Trash2,
+        danger: true,
+        onClick: () => void deleteRoom(roomId),
+      },
+    ]
+  }
+
+  function subscriberContextItems(subId: string): ContextMenuItem[] {
+    const sub = prefs.subscribers.find((s) => s.id === subId)
+    if (!sub) return []
+    return [
+      {
+        id: 'msg',
+        label: 'Отвори чат',
+        icon: MessageCircle,
+        onClick: () => startConversationFromSubscriber(subId),
+      },
+      {
+        id: 'invite',
+        label: 'Покани с линк',
+        icon: Link2,
+        onClick: () => {
+          startConversationFromSubscriber(subId)
+          const existing = prefs.conversations.find(
+            (c) => !c.isGroup && c.title === sub.name
+          )
+          void createInvite(subId, existing?.id)
+        },
+      },
+      {
+        id: 'call',
+        label: 'Гласово обаждане',
+        icon: Phone,
+        onClick: () => {
+          startConversationFromSubscriber(subId)
+          const existing = prefs.conversations.find(
+            (c) => !c.isGroup && c.title === sub.name
+          )
+          if (existing) router.push(`/room/${existing.id}`)
+        },
+      },
+      {
+        id: 'video',
+        label: 'Видео обаждане',
+        icon: Video,
+        onClick: () => {
+          startConversationFromSubscriber(subId)
+          const existing = prefs.conversations.find(
+            (c) => !c.isGroup && c.title === sub.name
+          )
+          if (existing) router.push(`/room/${existing.id}?video=1`)
+        },
+      },
+      { id: 'sep1', label: '', separator: true },
+      {
+        id: 'copy-email',
+        label: 'Копирай email',
+        icon: Copy,
+        onClick: () => void navigator.clipboard.writeText(sub.email || ''),
+      },
+      {
+        id: 'pause',
+        label: sub.status === 'paused' ? 'Активирай' : 'Пауза',
+        icon: BellOff,
+        onClick: () =>
+          updatePrefs({
+            subscribers: prefs.subscribers.map((s) =>
+              s.id === subId
+                ? {
+                    ...s,
+                    status: s.status === 'paused' ? 'active' : 'paused',
+                  }
+                : s
+            ),
+          }),
+      },
+      { id: 'sep2', label: '', separator: true },
+      {
+        id: 'block',
+        label: 'Блокирай',
+        icon: Ban,
+        danger: true,
+        onClick: () => blockSubscriber(subId),
+      },
+      {
+        id: 'remove',
+        label: 'Премахни от списъка',
+        icon: Trash2,
+        danger: true,
+        onClick: () => removeSubscriber(subId),
+      },
+    ]
   }
 
   async function createInvite(forSubscriberId?: string, conversationId?: string) {
@@ -352,9 +586,13 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className="relative h-11 w-11 overflow-hidden rounded-full bg-[var(--accent-soft)] ring-1 ring-[var(--panel-border)]"
-            onClick={() => fileRef.current?.click()}
-            title="Добави снимка"
+            className={`relative h-11 w-11 overflow-hidden rounded-full bg-[var(--accent-soft)] ${
+              myStories.length
+                ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-[var(--background)]'
+                : 'ring-1 ring-[var(--panel-border)]'
+            }`}
+            onClick={() => setProfileOpen(true)}
+            title="Профил · Stories · настроение"
           >
             {user.avatarDataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -368,26 +606,21 @@ export default function DashboardPage() {
                 {user.displayName.slice(0, 1).toUpperCase()}
               </span>
             )}
-            <span className="absolute inset-x-0 bottom-0 bg-black/40 py-0.5 text-center text-[8px] text-white">
-              <ImagePlus className="mx-auto h-3 w-3" />
+            <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-[var(--panel)] px-0.5 text-[10px] shadow">
+              {mood.emoji}
             </span>
           </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => onAvatar(e.target.files?.[0])}
-          />
-          <div>
-            <p className="text-sm font-semibold">{user.displayName}</p>
-            <p className="text-[11px] text-[var(--muted)]">
-              {admin ? 'Admin · all free' : user.plan}{' '}
-              {admin || user.planPaid || user.plan === 'free'
-                ? '· active'
-                : '· unpaid'}
+          <button
+            type="button"
+            className="min-w-0 text-left"
+            onClick={() => setProfileOpen(true)}
+          >
+            <p className="truncate text-sm font-semibold">{user.displayName}</p>
+            <p className="truncate text-[11px] text-[var(--muted)]">
+              {mood.labelBg} · {admin ? 'Admin' : user.plan}
+              {fullAccess ? ' · active' : ' · unpaid'}
             </p>
-          </div>
+          </button>
         </div>
 
         <div className="relative flex items-center gap-2">
@@ -505,12 +738,13 @@ export default function DashboardPage() {
               ))}
             </div>
             {tab === 'chats' ? (
-              <div className="mt-2 flex gap-1">
+              <div className="mt-2 flex flex-wrap gap-1">
                 {(
                   [
                     ['all', 'Всички'],
                     ['unread', 'Непрочетени'],
                     ['groups', 'Групи'],
+                    ['archived', 'Архив'],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -537,6 +771,33 @@ export default function DashboardPage() {
                   key={conv.id}
                   type="button"
                   onClick={() => setActiveId(conv.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setCtxMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      type: 'room',
+                      id: conv.id,
+                    })
+                  }}
+                  onTouchStart={(e) => {
+                    const touch = e.touches[0]
+                    const timer = window.setTimeout(() => {
+                      setCtxMenu({
+                        x: touch.clientX,
+                        y: touch.clientY,
+                        type: 'room',
+                        id: conv.id,
+                      })
+                    }, 550)
+                    const clear = () => window.clearTimeout(timer)
+                    e.currentTarget.addEventListener('touchend', clear, {
+                      once: true,
+                    })
+                    e.currentTarget.addEventListener('touchmove', clear, {
+                      once: true,
+                    })
+                  }}
                   className={`mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left ${
                     activeId === conv.id
                       ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/30'
@@ -551,7 +812,14 @@ export default function DashboardPage() {
                       <span className="truncate text-sm font-semibold">
                         {conv.title}
                       </span>
-                      {conv.pinned ? <Pin className="h-3 w-3 text-[var(--accent)]" /> : null}
+                      <span className="flex items-center gap-1">
+                        {conv.muted ? (
+                          <BellOff className="h-3 w-3 text-[var(--muted)]" />
+                        ) : null}
+                        {conv.pinned ? (
+                          <Pin className="h-3 w-3 text-[var(--accent)]" />
+                        ) : null}
+                      </span>
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
                       {conv.lastMessage}
@@ -570,6 +838,15 @@ export default function DashboardPage() {
                 <div
                   key={sub.id}
                   className="mb-1 flex items-center gap-2 rounded-2xl px-3 py-2.5 hover:bg-[var(--chip)]"
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setCtxMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      type: 'subscriber',
+                      id: sub.id,
+                    })
+                  }}
                 >
                   <button
                     type="button"
@@ -698,8 +975,15 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     className="ov-icon-btn"
-                    title="Фини настройки на разговора"
-                    onClick={() => setSettingsOpen(true)}
+                    title="Опции за стаята"
+                    onClick={(e) =>
+                      setCtxMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        type: 'room',
+                        id: active.id,
+                      })
+                    }
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
@@ -754,29 +1038,70 @@ export default function DashboardPage() {
               </div>
 
               <div className="flex gap-2 overflow-x-auto border-b border-[var(--panel-border)] px-4 py-2">
+                <button
+                  type="button"
+                  className="flex shrink-0 flex-col items-center gap-1"
+                  onClick={() => setProfileOpen(true)}
+                  title="Добави Story"
+                >
+                  <span
+                    className={`relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-emerald-700 text-xs font-bold text-white ${
+                      myStories.length
+                        ? 'ring-2 ring-amber-400'
+                        : 'ring-2 ring-[var(--accent)]/40'
+                    }`}
+                  >
+                    {user.displayName.slice(0, 1)}
+                    <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-[var(--accent)] px-1 text-[9px] text-[var(--accent-ink)]">
+                      +
+                    </span>
+                  </span>
+                  <span className="text-[10px] text-[var(--muted)]">Моята</span>
+                </button>
+                {myStories.slice(0, 6).map((story) => (
+                  <button
+                    key={story.id}
+                    type="button"
+                    className="flex shrink-0 flex-col items-center gap-1"
+                    onClick={() => setProfileOpen(true)}
+                  >
+                    <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full ring-2 ring-amber-400">
+                      {story.type === 'image' && story.imageDataUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={story.imageDataUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="bg-gradient-to-br from-indigo-500 to-fuchsia-600 px-1 text-center text-[8px] text-white">
+                          {story.text?.slice(0, 10)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[10px] text-[var(--muted)]">24ч</span>
+                  </button>
+                ))}
                 {[
-                  { name: 'Ти', tone: 'from-teal-400 to-emerald-700', label: 'Story' },
                   { name: 'Live', tone: 'from-rose-400 to-orange-500', label: 'ON AIR' },
                   { name: 'Deal', tone: 'from-amber-400 to-yellow-600', label: 'CRM' },
-                  { name: 'Show', tone: 'from-violet-400 to-indigo-600', label: 'Clip' },
                 ].map((story) => (
                   <button
                     key={story.name}
                     type="button"
                     className="flex shrink-0 flex-col items-center gap-1"
-                    title="OmniVoice Status — като Stories, но за бизнес/подкаст"
                     onClick={() =>
-                      appendMessage({
-                        text: `📡 Status: ${story.label}`,
-                      })
+                      appendMessage({ text: `📡 Status: ${story.label}` })
                     }
                   >
                     <span
-                      className={`flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br ${story.tone} text-xs font-bold text-white ring-2 ring-[var(--accent)]/40`}
+                      className={`flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br ${story.tone} text-xs font-bold text-white`}
                     >
                       {story.name.slice(0, 1)}
                     </span>
-                    <span className="text-[10px] text-[var(--muted)]">{story.label}</span>
+                    <span className="text-[10px] text-[var(--muted)]">
+                      {story.label}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -826,6 +1151,34 @@ export default function DashboardPage() {
         onOpenRegister={() => router.push('/register')}
       />
       <ContactImportModal open={importOpen} onClose={() => setImportOpen(false)} />
+      <ProfileHub
+        open={profileOpen}
+        user={user}
+        social={prefs.profileSocial || { moodId: 'focused', bio: '', locationLabel: '', streakDays: 0, stories: [], showOnMap: false, publicProfile: true }}
+        presence={prefs.presence}
+        onClose={() => setProfileOpen(false)}
+        onUpdateUser={(patch) => updatePrefs({ user: { ...user, ...patch } })}
+        onUpdateSocial={(patch) =>
+          updatePrefs({
+            profileSocial: { ...prefs.profileSocial, ...patch },
+          })
+        }
+        onPresenceChange={(presence) => updatePrefs({ presence })}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+      <ContextMenu
+        open={Boolean(ctxMenu)}
+        x={ctxMenu?.x || 0}
+        y={ctxMenu?.y || 0}
+        onClose={() => setCtxMenu(null)}
+        items={
+          ctxMenu?.type === 'room'
+            ? roomContextItems(ctxMenu.id)
+            : ctxMenu?.type === 'subscriber'
+              ? subscriberContextItems(ctxMenu.id)
+              : []
+        }
+      />
     </div>
   )
 }

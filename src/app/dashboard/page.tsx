@@ -21,6 +21,7 @@ import {
   Pencil,
   Phone,
   Pin,
+  Plus,
   Radio,
   Search,
   Settings2,
@@ -34,6 +35,9 @@ import {
 } from 'lucide-react'
 import AppearancePanel from '@/components/AppearancePanel'
 import ChatComposer from '@/components/ChatComposer'
+import CreateRoomWizard, {
+  type CreateRoomDraft,
+} from '@/components/CreateRoomWizard'
 import ContactImportModal from '@/components/ContactImportModal'
 import ContextMenu, { type ContextMenuItem } from '@/components/ContextMenu'
 import FriendshipProfile from '@/components/FriendshipProfile'
@@ -74,6 +78,8 @@ export default function DashboardPage() {
     setAppearance,
   } = useTheme()
   const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [createRoomOpen, setCreateRoomOpen] = useState(false)
+  const [creatingRoom, setCreatingRoom] = useState(false)
   const user = prefs.user
   const [query, setQuery] = useState('')
   const [activeId, setActiveId] = useState(prefs.conversations[0]?.id || '')
@@ -580,6 +586,141 @@ export default function DashboardPage() {
     ]
   }
 
+  async function createRoomFromDraft(draft: CreateRoomDraft) {
+    if (!user) return
+    setCreatingRoom(true)
+    try {
+      let roomId = `conv_${Date.now()}`
+      let inviteUrl: string | null = null
+      let newInvite: InviteLink | null = null
+
+      if (isClientBackendEnabled()) {
+        const res = await fetch('/api/rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            title: draft.title,
+            channel: draft.channel,
+          }),
+        })
+        const data = (await res.json()) as {
+          room?: { id: string; title: string }
+          error?: string
+        }
+        if (!res.ok || !data.room) {
+          window.alert(data.error || 'Неуспешно създаване на стая')
+          return
+        }
+        roomId = data.room.id
+
+        if (draft.allowGuests && draft.copyInvite) {
+          const inv = await fetch('/api/invites', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              roomId,
+              createRoom: false,
+              label: `Покана · ${draft.title}`,
+              channel: draft.channel,
+              prefillLanguage: draft.guestLanguage,
+            }),
+          })
+          const invData = (await inv.json()) as {
+            url?: string
+            invite?: { id: string; code: string; room_id: string; label: string }
+            error?: string
+          }
+          if (inv.ok && invData.url && invData.invite) {
+            inviteUrl = invData.url
+            newInvite = {
+              id: invData.invite.id,
+              code: invData.invite.code,
+              conversationId: invData.invite.room_id,
+              label: invData.invite.label,
+              channel: draft.channel,
+              prefillLanguage: draft.guestLanguage,
+              createdAt: new Date().toISOString(),
+              active: true,
+            }
+            void navigator.clipboard.writeText(invData.url)
+            setInviteCopied(true)
+            window.setTimeout(() => setInviteCopied(false), 2000)
+          }
+        }
+      } else if (draft.allowGuests && draft.copyInvite) {
+        const code = `inv_${Math.random().toString(36).slice(2, 8)}`
+        newInvite = {
+          id: `invite_${Date.now()}`,
+          code,
+          conversationId: roomId,
+          label: `Покана · ${draft.title}`,
+          channel: draft.channel,
+          prefillLanguage: draft.guestLanguage,
+          createdAt: new Date().toISOString(),
+          active: true,
+        }
+        inviteUrl = `${window.location.origin}/join?invite=${code}&conv=${roomId}&channel=${draft.channel}&lang=${draft.guestLanguage}`
+        void navigator.clipboard.writeText(inviteUrl)
+        setInviteCopied(true)
+        window.setTimeout(() => setInviteCopied(false), 2000)
+      }
+
+      const conv: Conversation = {
+        id: roomId,
+        title: draft.title,
+        isGroup: draft.isGroup,
+        members: [],
+        lastMessage: draft.allowGuests
+          ? 'Стаята е готова · покани гости'
+          : 'Стаята е създадена',
+        updatedAt: new Date().toISOString(),
+        unread: 0,
+        pinned: false,
+        muted: false,
+        messages: [],
+        saveChat: draft.saveChat,
+        disappearAfter: draft.disappearAfter,
+        sessionOpen: true,
+        activeGuestIds: [],
+      }
+
+      updatePrefs({
+        room: {
+          ...prefs.room,
+          studioRoomId: draft.studioRoomId,
+          videoQuality: draft.videoQuality,
+          waitingRoom: draft.waitingRoom,
+          allowGuests: draft.allowGuests,
+          customBackground: null,
+        },
+        conversations: [
+          conv,
+          ...prefs.conversations.filter((c) => c.id !== roomId),
+        ],
+        ...(newInvite
+          ? { invites: [newInvite, ...(prefs.invites || [])] }
+          : {}),
+      })
+      setActiveId(roomId)
+      setTab('chats')
+      setInboxFilter('all')
+      setCreateRoomOpen(false)
+
+      if (draft.enterNow) {
+        const video =
+          draft.videoOnJoin &&
+          (draft.channel === 'both' || draft.channel === 'call')
+        router.push(`/room/${roomId}?video=${video ? '1' : '0'}`)
+      } else if (inviteUrl) {
+        window.alert('Стаята е създадена. Invite линкът е копиран.')
+      }
+    } finally {
+      setCreatingRoom(false)
+    }
+  }
+
   async function createInvite(forSubscriberId?: string, conversationId?: string) {
     if (!user) return
     const targetId = conversationId || activeId
@@ -819,6 +960,14 @@ export default function DashboardPage() {
                 }}
               />
               <MenuItem
+                icon={Plus}
+                label="Създай стая"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setCreateRoomOpen(true)
+                }}
+              />
+              <MenuItem
                 icon={Link2}
                 label={inviteCopied ? 'Линкът е копиран' : 'Покани с линк'}
                 onClick={() => {
@@ -860,10 +1009,31 @@ export default function DashboardPage() {
       <div className="mx-auto grid w-full max-w-7xl flex-1 overflow-hidden lg:grid-cols-[340px_1fr]">
         <aside className="flex flex-col border-r border-[var(--panel-border)] bg-[var(--chip)]/40">
           <div className="border-b border-[var(--panel-border)] p-3">
-            <div className="flex items-center gap-2">
-              <Waves className="h-4 w-4 text-[var(--accent)]" />
-              <p className="text-sm font-semibold">Messenger dashboard</p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <Waves className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+                <p className="truncate text-sm font-semibold">
+                  Messenger dashboard
+                </p>
+              </div>
+              <button
+                type="button"
+                className="ov-btn-primary !px-2.5 !py-1.5 text-[11px]"
+                onClick={() => setCreateRoomOpen(true)}
+                title="Създай стая"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Стая
+              </button>
             </div>
+            <button
+              type="button"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--accent)]/40 bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-semibold text-[var(--accent)] hover:brightness-105"
+              onClick={() => setCreateRoomOpen(true)}
+            >
+              <Plus className="h-4 w-4" />
+              Създай стая
+            </button>
             <div className="ov-input-wrap mt-3">
               <Search className="h-4 w-4 opacity-50" />
               <input
@@ -1299,17 +1469,35 @@ export default function DashboardPage() {
               </footer>
             </>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
               <MessageCircle className="h-8 w-8 text-[var(--accent)]" />
-              <p className="mt-3 text-sm font-semibold">Избери разговор</p>
+              <p className="mt-3 text-sm font-semibold">Няма избрана стая</p>
               <p className="mt-1 text-xs text-[var(--muted)]">
-                Или отвори абонат и започни нов чат
+                Създай нова стая с богатите опции или избери разговор вляво
               </p>
+              <button
+                type="button"
+                className="ov-btn-primary mt-4 !px-4 !py-2 text-xs"
+                onClick={() => setCreateRoomOpen(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Създай стая
+              </button>
             </div>
           )}
         </section>
       </div>
 
+      <CreateRoomWizard
+        open={createRoomOpen}
+        userPlan={user.plan}
+        isAdmin={admin}
+        customRooms={prefs.room.customStudioRooms || []}
+        defaultLanguage={user.nativeLanguage || 'bg'}
+        busy={creatingRoom}
+        onClose={() => setCreateRoomOpen(false)}
+        onCreate={(draft) => void createRoomFromDraft(draft)}
+      />
       <AppearancePanel
         open={appearanceOpen}
         appearance={appearance}

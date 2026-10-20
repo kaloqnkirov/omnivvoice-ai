@@ -8,20 +8,50 @@ import {
   useMemo,
   useState,
 } from 'react'
+import {
+  cycleTheme,
+  getThemeOption,
+  resolveWallpaperUrl,
+  type AppearanceSettings,
+  type ThemeId,
+} from '@/lib/appearance'
 import { loadPreferences, savePreferences, type AppPreferences } from '@/lib/user-store'
 
-type Theme = 'light' | 'dark'
-
 type ThemeContextValue = {
-  theme: Theme
-  setTheme: (theme: Theme) => void
+  theme: ThemeId
+  setTheme: (theme: ThemeId) => void
   toggleTheme: () => void
+  appearance: AppearanceSettings
+  setAppearance: (patch: Partial<AppearanceSettings>) => void
   prefs: AppPreferences
   updatePrefs: (patch: Partial<AppPreferences>) => void
   hydrated: boolean
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
+
+function applyDocumentTheme(theme: ThemeId, appearance: AppearanceSettings) {
+  const root = document.documentElement
+  const option = getThemeOption(theme)
+  root.dataset.theme = theme
+  root.classList.toggle('dark', option.isDark)
+  root.classList.toggle('light', !option.isDark)
+
+  const wallpaper = resolveWallpaperUrl(appearance)
+  const body = document.body
+  if (wallpaper) {
+    body.style.setProperty('--wallpaper-image', `url("${wallpaper}")`)
+    body.classList.add('has-wallpaper')
+  } else {
+    body.style.setProperty('--wallpaper-image', 'none')
+    body.classList.remove('has-wallpaper')
+  }
+  body.style.setProperty('--wallpaper-dim', String(appearance.wallpaperDim))
+  body.style.setProperty(
+    '--wallpaper-blur',
+    appearance.wallpaperBlur ? '2px' : '0px'
+  )
+}
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [prefs, setPrefs] = useState<AppPreferences>(() => loadPreferences())
@@ -35,28 +65,57 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!hydrated) return
-    document.documentElement.dataset.theme = prefs.theme
-    document.documentElement.classList.toggle('dark', prefs.theme === 'dark')
-    document.documentElement.classList.toggle('light', prefs.theme === 'light')
-    savePreferences(prefs)
+    const appearance = {
+      ...prefs.appearance,
+      theme: prefs.theme,
+    }
+    applyDocumentTheme(prefs.theme, appearance)
+    savePreferences({ ...prefs, appearance })
   }, [prefs, hydrated])
 
   const updatePrefs = useCallback((patch: Partial<AppPreferences>) => {
-    setPrefs((current) => ({ ...current, ...patch }))
+    setPrefs((current) => {
+      const next = { ...current, ...patch }
+      if (patch.theme && !patch.appearance) {
+        next.appearance = { ...current.appearance, theme: patch.theme }
+      }
+      if (patch.appearance?.theme && !patch.theme) {
+        next.theme = patch.appearance.theme
+      }
+      return next
+    })
   }, [])
 
   const setTheme = useCallback(
-    (theme: Theme) => {
-      updatePrefs({ theme })
+    (theme: ThemeId) => {
+      updatePrefs({
+        theme,
+        appearance: { ...prefs.appearance, theme },
+      })
     },
-    [updatePrefs]
+    [prefs.appearance, updatePrefs]
+  )
+
+  const setAppearance = useCallback(
+    (patch: Partial<AppearanceSettings>) => {
+      const appearance = { ...prefs.appearance, ...patch }
+      updatePrefs({
+        appearance,
+        theme: appearance.theme,
+      })
+    },
+    [prefs.appearance, updatePrefs]
   )
 
   const toggleTheme = useCallback(() => {
-    setPrefs((current) => ({
-      ...current,
-      theme: current.theme === 'dark' ? 'light' : 'dark',
-    }))
+    setPrefs((current) => {
+      const theme = cycleTheme(current.theme)
+      return {
+        ...current,
+        theme,
+        appearance: { ...current.appearance, theme },
+      }
+    })
   }, [])
 
   const value = useMemo(
@@ -64,11 +123,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       theme: prefs.theme,
       setTheme,
       toggleTheme,
+      appearance: prefs.appearance,
+      setAppearance,
       prefs,
       updatePrefs,
       hydrated,
     }),
-    [prefs, setTheme, toggleTheme, updatePrefs, hydrated]
+    [
+      prefs,
+      setTheme,
+      toggleTheme,
+      setAppearance,
+      updatePrefs,
+      hydrated,
+    ]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

@@ -39,6 +39,114 @@ html[data-theme='dark'] {
   --stage: #0b1713;
 }
 
+html[data-theme='midnight'] {
+  --background: #0b1020;
+  --foreground: #e8eefc;
+  --muted: #94a3b8;
+  --panel: rgba(15, 23, 42, 0.86);
+  --panel-border: rgba(148, 163, 184, 0.16);
+  --chip: rgba(255, 255, 255, 0.05);
+  --accent: #818cf8;
+  --accent-soft: rgba(129, 140, 248, 0.18);
+  --accent-ink: #0b1020;
+  --success: #34d399;
+  --danger: #f87171;
+  --glow-a: rgba(99, 102, 241, 0.2);
+  --glow-b: rgba(56, 189, 248, 0.12);
+  --glow-c: rgba(244, 114, 182, 0.08);
+  --stage: #111827;
+}
+
+html[data-theme='ocean'] {
+  --background: #06263a;
+  --foreground: #e7f8ff;
+  --muted: #7eb6c9;
+  --panel: rgba(8, 40, 58, 0.84);
+  --panel-border: rgba(125, 211, 252, 0.16);
+  --chip: rgba(255, 255, 255, 0.05);
+  --accent: #22d3ee;
+  --accent-soft: rgba(34, 211, 238, 0.16);
+  --accent-ink: #042f3a;
+  --success: #2dd4bf;
+  --danger: #fb7185;
+  --glow-a: rgba(34, 211, 238, 0.18);
+  --glow-b: rgba(14, 165, 233, 0.14);
+  --glow-c: rgba(45, 212, 191, 0.1);
+  --stage: #0a3044;
+}
+
+html[data-theme='sunset'] {
+  --background: #2a1210;
+  --foreground: #fff4ec;
+  --muted: #d4a59a;
+  --panel: rgba(48, 22, 18, 0.86);
+  --panel-border: rgba(251, 146, 60, 0.18);
+  --chip: rgba(255, 255, 255, 0.05);
+  --accent: #fb923c;
+  --accent-soft: rgba(251, 146, 60, 0.18);
+  --accent-ink: #2a1210;
+  --success: #84cc16;
+  --danger: #f43f5e;
+  --glow-a: rgba(251, 146, 60, 0.2);
+  --glow-b: rgba(244, 63, 94, 0.12);
+  --glow-c: rgba(250, 204, 21, 0.1);
+  --stage: #3a1a14;
+}
+
+html[data-theme='forest'] {
+  --background: #102417;
+  --foreground: #ecfdf3;
+  --muted: #95b89f;
+  --panel: rgba(16, 40, 26, 0.86);
+  --panel-border: rgba(134, 239, 172, 0.16);
+  --chip: rgba(255, 255, 255, 0.05);
+  --accent: #4ade80;
+  --accent-soft: rgba(74, 222, 128, 0.16);
+  --accent-ink: #052e16;
+  --success: #22c55e;
+  --danger: #f87171;
+  --glow-a: rgba(74, 222, 128, 0.16);
+  --glow-b: rgba(163, 230, 53, 0.1);
+  --glow-c: rgba(45, 212, 191, 0.1);
+  --stage: #163022;
+}
+
+html[data-theme='aurora'] {
+  --background: #0f172a;
+  --foreground: #ecfeff;
+  --muted: #99b4c8;
+  --panel: rgba(15, 23, 42, 0.84);
+  --panel-border: rgba(52, 211, 153, 0.18);
+  --chip: rgba(255, 255, 255, 0.05);
+  --accent: #34d399;
+  --accent-soft: rgba(52, 211, 153, 0.16);
+  --accent-ink: #042f2e;
+  --success: #2dd4bf;
+  --danger: #fb7185;
+  --glow-a: rgba(52, 211, 153, 0.18);
+  --glow-b: rgba(56, 189, 248, 0.14);
+  --glow-c: rgba(167, 139, 250, 0.1);
+  --stage: #111c33;
+}
+
+html[data-theme='carbon'] {
+  --background: #111111;
+  --foreground: #f5f5f5;
+  --muted: #a3a3a3;
+  --panel: rgba(24, 24, 24, 0.9);
+  --panel-border: rgba(163, 163, 163, 0.18);
+  --chip: rgba(255, 255, 255, 0.05);
+  --accent: #e5e5e5;
+  --accent-soft: rgba(229, 229, 229, 0.12);
+  --accent-ink: #171717;
+  --success: #86efac;
+  --danger: #fca5a5;
+  --glow-a: rgba(255, 255, 255, 0.06);
+  --glow-b: rgba(163, 163, 163, 0.08);
+  --glow-c: rgba(82, 82, 82, 0.12);
+  --stage: #1a1a1a;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -56,14 +164,32 @@ body {
 }
 
 body {
-  background:
+  --wallpaper-image: none;
+  --wallpaper-dim: 0.55;
+  --wallpaper-blur: 0px;
+  background-color: var(--background);
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, var(--wallpaper-dim)),
+      rgba(0, 0, 0, calc(var(--wallpaper-dim) * 0.85))
+    ),
+    var(--wallpaper-image),
     radial-gradient(1100px 520px at 8% -8%, var(--glow-a), transparent 55%),
     radial-gradient(900px 480px at 92% 0%, var(--glow-b), transparent 50%),
     radial-gradient(700px 420px at 50% 100%, var(--glow-c), transparent 55%),
     linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.04)),
-    var(--background);
+    linear-gradient(180deg, var(--background), var(--background));
+  background-size: auto, cover, auto, auto, auto, auto, auto;
+  background-position: center, center, center, center, center, center, center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+}
+
+body.has-wallpaper {
+  backdrop-filter: blur(var(--wallpaper-blur));
 }
 
 @keyframes wave {

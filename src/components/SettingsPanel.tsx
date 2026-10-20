@@ -44,6 +44,12 @@ import {
   buildScriptSnippet,
   createSiteKey,
 } from '@/lib/website-embed'
+import {
+  THEME_OPTIONS,
+  WALLPAPER_PRESETS,
+  type AppearanceSettings,
+  type ThemeId,
+} from '@/lib/appearance'
 import { useTheme } from '@/lib/theme'
 
 type Tab =
@@ -92,7 +98,8 @@ export default function SettingsPanel({
   onClose,
   onOpenRegister,
 }: SettingsPanelProps) {
-  const { theme, toggleTheme, prefs, updatePrefs } = useTheme()
+  const { theme, toggleTheme, prefs, updatePrefs, setAppearance, appearance } =
+    useTheme()
   const [tab, setTab] = useState<Tab>('account')
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [newSubName, setNewSubName] = useState('')
@@ -380,8 +387,9 @@ export default function SettingsPanel({
               )}
               <ThemeBlock
                 theme={theme}
-                onLight={() => updatePrefs({ theme: 'light' })}
-                onDark={() => updatePrefs({ theme: 'dark' })}
+                appearance={appearance}
+                onSelectTheme={(id) => setAppearance({ theme: id })}
+                onAppearance={(patch) => setAppearance(patch)}
               />
             </div>
           )}
@@ -1640,42 +1648,119 @@ function ToggleRow({
 
 function ThemeBlock({
   theme,
-  onLight,
-  onDark,
+  appearance,
+  onSelectTheme,
+  onAppearance,
 }: {
   theme: string
-  onLight: () => void
-  onDark: () => void
+  appearance: AppearanceSettings
+  onSelectTheme: (id: ThemeId) => void
+  onAppearance: (patch: Partial<AppearanceSettings>) => void
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--chip)] p-3">
+    <div className="space-y-3 rounded-2xl border border-[var(--panel-border)] bg-[var(--chip)] p-3">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-        Тема
+        Тема · 8 режима
       </p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={onLight}
-          className={`rounded-xl px-3 py-2 text-sm ${
-            theme === 'light'
-              ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
-              : 'bg-[var(--panel)] text-[var(--muted)]'
-          }`}
-        >
-          Light
-        </button>
-        <button
-          type="button"
-          onClick={onDark}
-          className={`rounded-xl px-3 py-2 text-sm ${
-            theme === 'dark'
-              ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
-              : 'bg-[var(--panel)] text-[var(--muted)]'
-          }`}
-        >
-          Dark
-        </button>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {THEME_OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onSelectTheme(opt.id)}
+            className={`overflow-hidden rounded-xl border text-left ${
+              theme === opt.id
+                ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/35'
+                : 'border-[var(--panel-border)]'
+            }`}
+          >
+            <span
+              className="block h-8 w-full"
+              style={{ background: opt.swatch }}
+            />
+            <span className="block px-1.5 py-1 text-[10px] font-semibold">
+              {opt.labelBg}
+            </span>
+          </button>
+        ))}
       </div>
+
+      <p className="pt-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+        Тапет
+      </p>
+      <div className="grid grid-cols-3 gap-1.5">
+        {WALLPAPER_PRESETS.slice(0, 6).map((paper) => (
+          <button
+            key={paper.id}
+            type="button"
+            onClick={() =>
+              onAppearance({
+                wallpaperId: paper.id,
+                customWallpaper: null,
+              })
+            }
+            className={`overflow-hidden rounded-lg border ${
+              !appearance.customWallpaper &&
+              appearance.wallpaperId === paper.id
+                ? 'border-[var(--accent)]'
+                : 'border-[var(--panel-border)]'
+            }`}
+          >
+            {paper.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={paper.imageUrl}
+                alt={paper.name}
+                className="h-12 w-full object-cover"
+              />
+            ) : (
+              <span className="flex h-12 items-center justify-center bg-[var(--panel)] text-[9px] text-[var(--muted)]">
+                None
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      <label className="block text-[11px] text-[var(--muted)]">
+        Затъмняване {Math.round(appearance.wallpaperDim * 100)}%
+        <input
+          type="range"
+          min={0.15}
+          max={0.85}
+          step={0.05}
+          className="mt-1 w-full"
+          value={appearance.wallpaperDim}
+          onChange={(e) =>
+            onAppearance({ wallpaperDim: Number(e.target.value) })
+          }
+        />
+      </label>
+      <label className="flex cursor-pointer items-center gap-2 text-xs">
+        <input
+          type="file"
+          accept="image/*"
+          className="text-[11px]"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (!file) return
+            if (file.size > 4.5 * 1024 * 1024) {
+              window.alert('Макс. 4.5 MB')
+              return
+            }
+            const reader = new FileReader()
+            reader.onload = () => {
+              if (typeof reader.result === 'string') {
+                onAppearance({
+                  customWallpaper: reader.result,
+                  wallpaperId: 'custom',
+                })
+              }
+            }
+            reader.readAsDataURL(file)
+          }}
+        />
+        Качи свой тапет
+      </label>
     </div>
   )
 }

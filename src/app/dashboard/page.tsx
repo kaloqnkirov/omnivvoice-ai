@@ -32,6 +32,7 @@ import {
   Volume2,
   Waves,
 } from 'lucide-react'
+import AppearancePanel from '@/components/AppearancePanel'
 import ChatComposer from '@/components/ChatComposer'
 import ContactImportModal from '@/components/ContactImportModal'
 import ContextMenu, { type ContextMenuItem } from '@/components/ContextMenu'
@@ -63,7 +64,16 @@ import { useTheme } from '@/lib/theme'
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { theme, toggleTheme, prefs, updatePrefs, hydrated } = useTheme()
+  const {
+    theme,
+    toggleTheme,
+    prefs,
+    updatePrefs,
+    hydrated,
+    appearance,
+    setAppearance,
+  } = useTheme()
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const user = prefs.user
   const [query, setQuery] = useState('')
   const [activeId, setActiveId] = useState(prefs.conversations[0]?.id || '')
@@ -747,8 +757,25 @@ export default function DashboardPage() {
           >
             <Radio className="h-4 w-4" />
           </button>
-          <button type="button" className="ov-icon-btn" onClick={toggleTheme}>
-            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          <button
+            type="button"
+            className="ov-icon-btn"
+            title="Смени тема (клик) · всички теми (двоен клик)"
+            onClick={toggleTheme}
+            onDoubleClick={(e) => {
+              e.preventDefault()
+              setAppearanceOpen(true)
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setAppearanceOpen(true)
+            }}
+          >
+            {theme === 'light' ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
           </button>
           <button
             type="button"
@@ -797,6 +824,14 @@ export default function DashboardPage() {
                 onClick={() => {
                   createInvite()
                   setMenuOpen(false)
+                }}
+              />
+              <MenuItem
+                icon={Sun}
+                label="Теми и тапети"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setAppearanceOpen(true)
                 }}
               />
               <MenuItem
@@ -1275,6 +1310,12 @@ export default function DashboardPage() {
         </section>
       </div>
 
+      <AppearancePanel
+        open={appearanceOpen}
+        appearance={appearance}
+        onClose={() => setAppearanceOpen(false)}
+        onChange={setAppearance}
+      />
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

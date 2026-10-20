@@ -14,6 +14,11 @@ import {
   type ProfileSocial,
 } from '@/lib/profile-social'
 import { DEFAULT_SNAP_PLUS, type SnapPlusState } from '@/lib/snap-plus'
+import {
+  DEFAULT_APPEARANCE,
+  type AppearanceSettings,
+  type ThemeId,
+} from '@/lib/appearance'
 
 export type ContactMethod = 'email' | 'phone'
 
@@ -217,7 +222,8 @@ export type WebsiteConnection = {
 }
 
 export type AppPreferences = {
-  theme: 'light' | 'dark'
+  theme: ThemeId
+  appearance: AppearanceSettings
   user: OmniUser | null
   subscribers: Subscriber[]
   blocked: BlockedContact[]
@@ -237,7 +243,7 @@ export type AppPreferences = {
   snapPlus: SnapPlusState
 }
 
-const STORAGE_KEY = 'omnivvoice.preferences.v7'
+const STORAGE_KEY = 'omnivvoice.preferences.v8'
 
 function emptyPlatform(): PlatformConnection {
   return {
@@ -573,9 +579,25 @@ export const DEMO_SUBSCRIBERS: Subscriber[] = [
   },
 ]
 
+const THEME_IDS: ThemeId[] = [
+  'light',
+  'dark',
+  'midnight',
+  'ocean',
+  'sunset',
+  'forest',
+  'aurora',
+  'carbon',
+]
+
+function normalizeTheme(value: unknown): ThemeId {
+  return THEME_IDS.includes(value as ThemeId) ? (value as ThemeId) : 'dark'
+}
+
 function defaults(): AppPreferences {
   return {
     theme: 'dark',
+    appearance: DEFAULT_APPEARANCE,
     user: null,
     subscribers: DEMO_SUBSCRIBERS,
     blocked: [],
@@ -602,6 +624,7 @@ export function loadPreferences(): AppPreferences {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ||
+      window.localStorage.getItem('omnivvoice.preferences.v7') ||
       window.localStorage.getItem('omnivvoice.preferences.v6') ||
       window.localStorage.getItem('omnivvoice.preferences.v5') ||
       window.localStorage.getItem('omnivvoice.preferences.v4') ||
@@ -624,8 +647,14 @@ export function loadPreferences(): AppPreferences {
           authProvider: parsed.user.authProvider || ('email' as AuthProvider),
         }
       : null
+    const theme = normalizeTheme(parsed.theme || parsed.appearance?.theme)
     return {
-      theme: parsed.theme === 'light' ? 'light' : 'dark',
+      theme,
+      appearance: {
+        ...DEFAULT_APPEARANCE,
+        ...(parsed.appearance || {}),
+        theme: normalizeTheme(parsed.appearance?.theme || theme),
+      },
       user,
       subscribers: parsed.subscribers?.length
         ? parsed.subscribers

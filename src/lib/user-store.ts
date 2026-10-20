@@ -673,6 +673,11 @@ export function loadPreferences(): AppPreferences {
           typeof conv.sessionOpen === 'boolean' ? conv.sessionOpen : true,
         activeGuestIds: conv.activeGuestIds || [],
         archived: Boolean((conv as Conversation & { archived?: boolean }).archived),
+        joinRequests: Array.isArray(
+          (conv as Conversation & { joinRequests?: unknown }).joinRequests
+        )
+          ? (conv as Conversation).joinRequests
+          : [],
       })),
       invites: parsed.invites || [],
       socialLinks: parsed.socialLinks?.length

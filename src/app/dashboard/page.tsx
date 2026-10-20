@@ -10,6 +10,7 @@ import {
   Camera,
   ChevronDown,
   Copy,
+  DoorOpen,
   Headphones,
   Link2,
   Lock,
@@ -49,7 +50,12 @@ import RichMessageBubble from '@/components/RichMessageBubble'
 import SettingsPanel from '@/components/SettingsPanel'
 import SpotlightFeed from '@/components/SpotlightFeed'
 import StudioMap from '@/components/StudioMap'
-import type { Conversation, ConversationMessage, InviteLink } from '@/lib/auth-types'
+import type {
+  Conversation,
+  ConversationMessage,
+  InviteLink,
+  JoinRequest,
+} from '@/lib/auth-types'
 import { hasFullAccess, isAdminUser, needsCheckout } from '@/lib/access'
 import {
   fetchBackendUser,
@@ -591,6 +597,146 @@ export default function DashboardPage() {
     ]
   }
 
+  function openRoomForSubscriberKnock(subId?: string) {
+    if (active && active.sessionOpen !== false) return active
+    const open = prefs.conversations.find((c) => c.sessionOpen !== false)
+    if (open) {
+      setActiveId(open.id)
+      return open
+    }
+    if (subId) {
+      startConversationFromSubscriber(subId)
+      return prefs.conversations.find(
+        (c) =>
+          !c.isGroup &&
+          c.title === prefs.subscribers.find((s) => s.id === subId)?.name
+      )
+    }
+    return undefined
+  }
+
+  /** Subscriber asks to enter an open room (knock) — host admits in the live room */
+  function subscriberRequestEnter(subId: string) {
+    const sub = prefs.subscribers.find((s) => s.id === subId)
+    const room = openRoomForSubscriberKnock(subId)
+    if (!sub || !room) {
+      showDragToast('Няма отворена стая')
+      return
+    }
+    const pending = (room.joinRequests || []).find(
+      (r) => r.subscriberId === subId && r.status === 'pending'
+    )
+    if (pending?.kind === 'invite') {
+      // Already invited — they can enter now
+      subscriberEnterRoom(subId, room.id)
+      return
+    }
+    if (pending?.kind === 'knock') {
+      showDragToast(`${sub.name} вече почуква`)
+      router.push(`/room/${room.id}`)
+      return
+    }
+
+    // Direct enter when knock is off and guests allowed
+    if (!prefs.room.knockToEnter && !prefs.room.waitingRoom) {
+      subscriberEnterRoom(subId, room.id)
+      return
+    }
+
+    const req: JoinRequest = {
+      id: `jr_${Date.now()}`,
+      subscriberId: sub.id,
+      name: sub.name,
+      language: sub.language,
+      kind: 'knock',
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    }
+    const now = new Date().toISOString()
+    patchConversation(room.id, {
+      joinRequests: [req, ...(room.joinRequests || [])],
+      lastMessage: `${sub.name} иска да влезе`,
+      updatedAt: now,
+      messages: [
+        ...room.messages,
+        {
+          id: `msg_${Date.now()}`,
+          fromMe: false,
+          text: `🚪 ${sub.name} почуква — иска да влезе в стаята`,
+          createdAt: now,
+          status: 'delivered',
+        },
+      ],
+    })
+    showDragToast(`${sub.name} почуква на вратата`)
+    router.push(`/room/${room.id}`)
+  }
+
+  /** Subscriber enters after invite / when allowed */
+  function subscriberEnterRoom(subId: string, roomId?: string) {
+    const sub = prefs.subscribers.find((s) => s.id === subId)
+    const room =
+      (roomId
+        ? prefs.conversations.find((c) => c.id === roomId)
+        : undefined) || openRoomForSubscriberKnock(subId)
+    if (!sub || !room) {
+      showDragToast('Няма стая за вход')
+      return
+    }
+    const invite = (room.joinRequests || []).find(
+      (r) =>
+        r.subscriberId === subId &&
+        r.status === 'pending' &&
+        r.kind === 'invite' &&
+        r.inviteCode
+    )
+    if (invite?.inviteCode) {
+      router.push(
+        `/join?invite=${invite.inviteCode}&conv=${room.id}&name=${encodeURIComponent(sub.name)}&lang=${sub.language}`
+      )
+      return
+    }
+    const already = room.members.some((m) => m.id === subId)
+    const now = new Date().toISOString()
+    patchConversation(room.id, {
+      members: already
+        ? room.members
+        : [
+            ...room.members,
+            {
+              id: sub.id,
+              name: sub.name,
+              language: sub.language,
+              presence: sub.presence || 'online',
+              avatarDataUrl: sub.avatarDataUrl,
+            },
+          ],
+      isGroup: true,
+      activeGuestIds: Array.from(
+        new Set([...(room.activeGuestIds || []), subId])
+      ),
+      joinRequests: (room.joinRequests || []).map((r) =>
+        r.subscriberId === subId && r.status === 'pending'
+          ? { ...r, status: 'accepted' as const }
+          : r
+      ),
+      lastMessage: `${sub.name} влезе в стаята`,
+      updatedAt: now,
+      messages: [
+        ...room.messages,
+        {
+          id: `msg_${Date.now()}`,
+          fromMe: false,
+          text: `✅ ${sub.name} влезе в стаята`,
+          createdAt: now,
+          status: 'delivered',
+        },
+      ],
+    })
+    showDragToast(`${sub.name} влиза…`)
+    router.push(`/room/${room.id}?video=1`)
+  }
+
   function subscriberContextItems(subId: string): ContextMenuItem[] {
     const sub = prefs.subscribers.find((s) => s.id === subId)
     if (!sub) return []
@@ -606,6 +752,18 @@ export default function DashboardPage() {
         label: 'Отвори чат',
         icon: MessageCircle,
         onClick: () => startConversationFromSubscriber(subId),
+      },
+      {
+        id: 'knock',
+        label: 'Иска да влезе / почукай',
+        icon: DoorOpen,
+        onClick: () => subscriberRequestEnter(subId),
+      },
+      {
+        id: 'enter-room',
+        label: 'Влез в отворена стая',
+        icon: Video,
+        onClick: () => subscriberEnterRoom(subId),
       },
       {
         id: 'invite',
@@ -1318,6 +1476,14 @@ export default function DashboardPage() {
                     <p className="truncate text-xs text-[var(--muted)]">
                       {presenceLabel(sub.presence || 'offline')} · плъзни → стая
                     </p>
+                  </button>
+                  <button
+                    type="button"
+                    className="ov-icon-btn"
+                    title="Иска да влезе в отворена стая"
+                    onClick={() => subscriberRequestEnter(sub.id)}
+                  >
+                    <DoorOpen className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"

@@ -53,6 +53,18 @@ export type ConversationMessage = {
   translatedText?: string
 }
 
+export type JoinRequest = {
+  id: string
+  subscriberId: string
+  name: string
+  language: string
+  /** host dragged invite vs subscriber asked to enter */
+  kind: 'invite' | 'knock'
+  status: 'pending' | 'accepted' | 'declined'
+  inviteCode?: string
+  createdAt: string
+}
+
 export type Conversation = {
   id: string
   title: string
@@ -70,6 +82,8 @@ export type Conversation = {
   sessionOpen: boolean
   activeGuestIds: string[]
   archived?: boolean
+  /** Pending room entries: host invite or subscriber knock */
+  joinRequests?: JoinRequest[]
 }
 
 export type InviteLink = {

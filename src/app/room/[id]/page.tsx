@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState, type DragEvent } from 'react'
 import {
   ArrowLeft,
   Camera,
@@ -19,6 +19,7 @@ import {
 import ChatComposer from '@/components/ChatComposer'
 import LiveKitStage from '@/components/LiveKitStage'
 import RichMessageBubble from '@/components/RichMessageBubble'
+import RoomPeopleDock from '@/components/RoomPeopleDock'
 import SettingsPanel from '@/components/SettingsPanel'
 import VirtualRoomSelector from '@/components/VirtualRoomSelector'
 import { isAdminUser } from '@/lib/access'
@@ -37,7 +38,7 @@ import {
 } from '@/lib/studio-rooms'
 import { useTheme } from '@/lib/theme'
 import { useLiveTranslation } from '@/lib/translation'
-import type { Conversation } from '@/lib/auth-types'
+import type { Conversation, JoinRequest } from '@/lib/auth-types'
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -82,6 +83,9 @@ function RoomInner() {
   const [kicked, setKicked] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
   const [replyPreview, setReplyPreview] = useState<string | null>(null)
+  const [dragPeople, setDragPeople] = useState(false)
+  const [dropOverStage, setDropOverStage] = useState(false)
+  const [peopleToast, setPeopleToast] = useState<string | null>(null)
   const [localRich, setLocalRich] = useState<
     Array<{
       id: string
@@ -214,6 +218,242 @@ function RoomInner() {
 
   function patchRoom(patch: Partial<typeof prefs.room>) {
     updatePrefs({ room: { ...prefs.room, ...patch } })
+  }
+
+  function toastPeople(text: string) {
+    setPeopleToast(text)
+    window.setTimeout(() => setPeopleToast(null), 2200)
+  }
+
+  const joinRequests = conv?.joinRequests || []
+
+  function ensureLocalRoom(): Conversation | null {
+    if (isGuest) return null
+    if (conv) return conv
+    if (!useBackendRoom) return null
+    const stub: Conversation = {
+      id: params.id,
+      title: remoteRoom?.title || title || 'Room',
+      isGroup: true,
+      members: [],
+      lastMessage: 'Стаята е отворена',
+      updatedAt: new Date().toISOString(),
+      unread: 0,
+      pinned: false,
+      muted: false,
+      messages: [],
+      saveChat: true,
+      disappearAfter: 'off',
+      sessionOpen: true,
+      activeGuestIds: [],
+      joinRequests: [],
+    }
+    updatePrefs({ conversations: [stub, ...prefs.conversations] })
+    return stub
+  }
+
+  async function inviteSubscriberByDrag(subId: string) {
+    const room = ensureLocalRoom()
+    if (!room || isGuest) return
+    const sub = prefs.subscribers.find((s) => s.id === subId)
+    if (!sub) return
+    const currentRequests = room.joinRequests || []
+    if (currentRequests.some((r) => r.subscriberId === subId && r.status === 'pending')) {
+      toastPeople(`${sub.name} вече е поканен/а`)
+      return
+    }
+    if (room.members.some((m) => m.id === subId)) {
+      toastPeople(`${sub.name} вече е в стаята`)
+      return
+    }
+
+    let inviteCode: string | undefined
+    if (isClientBackendEnabled() && isUuid(room.id)) {
+      const res = await fetch('/api/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          roomId: room.id,
+          createRoom: false,
+          label: `Покана · ${sub.name}`,
+          channel: 'both',
+          prefillName: sub.name,
+          prefillLanguage: sub.language,
+        }),
+      })
+      const data = (await res.json()) as {
+        url?: string
+        invite?: { code: string; id: string; room_id: string; label: string }
+      }
+      if (res.ok && data.url && data.invite) {
+        inviteCode = data.invite.code
+        updatePrefs({
+          invites: [
+            {
+              id: data.invite.id,
+              code: data.invite.code,
+              conversationId: data.invite.room_id,
+              label: data.invite.label,
+              channel: 'both',
+              prefillName: sub.name,
+              prefillLanguage: sub.language,
+              createdAt: new Date().toISOString(),
+              active: true,
+            },
+            ...(prefs.invites || []),
+          ],
+        })
+        void navigator.clipboard.writeText(data.url)
+      }
+    } else {
+      inviteCode = `inv_${Math.random().toString(36).slice(2, 8)}`
+      const url = `${window.location.origin}/join?invite=${inviteCode}&conv=${room.id}&name=${encodeURIComponent(sub.name)}&lang=${sub.language}`
+      updatePrefs({
+        invites: [
+          {
+            id: `invite_${Date.now()}`,
+            code: inviteCode,
+            conversationId: room.id,
+            label: `Покана · ${sub.name}`,
+            channel: 'both',
+            prefillName: sub.name,
+            prefillLanguage: sub.language,
+            createdAt: new Date().toISOString(),
+            active: true,
+          },
+          ...(prefs.invites || []),
+        ],
+      })
+      void navigator.clipboard.writeText(url)
+    }
+
+    const req: JoinRequest = {
+      id: `jr_${Date.now()}`,
+      subscriberId: sub.id,
+      name: sub.name,
+      language: sub.language,
+      kind: 'invite',
+      status: 'pending',
+      inviteCode,
+      createdAt: new Date().toISOString(),
+    }
+    const now = new Date().toISOString()
+    const systemMsg = {
+      id: `msg_${Date.now()}`,
+      fromMe: true as const,
+      text: `📩 ${sub.name} е поканен/а — чака да влезе (линкът е копиран)`,
+      createdAt: now,
+      status: 'sent' as const,
+    }
+    const exists = prefs.conversations.some((c) => c.id === room.id)
+    updatePrefs({
+      conversations: exists
+        ? prefs.conversations.map((item) =>
+            item.id === room.id
+              ? {
+                  ...item,
+                  sessionOpen: true,
+                  joinRequests: [req, ...(item.joinRequests || [])],
+                  lastMessage: `${sub.name} е поканен/а в стаята`,
+                  updatedAt: now,
+                  messages: [...item.messages, systemMsg],
+                }
+              : item
+          )
+        : [
+            {
+              ...room,
+              sessionOpen: true,
+              joinRequests: [req],
+              lastMessage: `${sub.name} е поканен/а в стаята`,
+              updatedAt: now,
+              messages: [systemMsg],
+            },
+            ...prefs.conversations,
+          ],
+    })
+    toastPeople(`${sub.name} поканен/а · чака да влезе`)
+  }
+
+  function admitJoinRequest(requestId: string) {
+    if (!conv || isGuest) return
+    const req = joinRequests.find((r) => r.id === requestId)
+    if (!req) return
+    const sub = prefs.subscribers.find((s) => s.id === req.subscriberId)
+    const member = {
+      id: req.subscriberId,
+      name: req.name,
+      language: req.language,
+      presence: sub?.presence || 'online',
+      avatarDataUrl: sub?.avatarDataUrl,
+    }
+    const already = conv.members.some((m) => m.id === req.subscriberId)
+    const now = new Date().toISOString()
+    patchConv({
+      members: already ? conv.members : [...conv.members, member],
+      isGroup: true,
+      activeGuestIds: Array.from(
+        new Set([...(conv.activeGuestIds || []), req.subscriberId])
+      ),
+      joinRequests: joinRequests.map((r) =>
+        r.id === requestId ? { ...r, status: 'accepted' as const } : r
+      ),
+      lastMessage: `${req.name} влезе в стаята`,
+      updatedAt: now,
+      messages: [
+        ...conv.messages,
+        {
+          id: `msg_${Date.now()}`,
+          fromMe: true,
+          text: `✅ ${req.name} влезе в стаята`,
+          createdAt: now,
+          status: 'sent',
+        },
+      ],
+    })
+    toastPeople(`${req.name} е в стаята`)
+  }
+
+  function declineJoinRequest(requestId: string) {
+    if (!conv || isGuest) return
+    const req = joinRequests.find((r) => r.id === requestId)
+    if (!req) return
+    patchConv({
+      joinRequests: joinRequests.map((r) =>
+        r.id === requestId ? { ...r, status: 'declined' as const } : r
+      ),
+      lastMessage: `${req.name} — отказ за вход`,
+    })
+    toastPeople(`Отказ за ${req.name}`)
+  }
+
+  function copyJoinInvite(requestId: string) {
+    const req = joinRequests.find((r) => r.id === requestId)
+    if (!req?.inviteCode || !conv) return
+    const url = `${window.location.origin}/join?invite=${req.inviteCode}&conv=${conv.id}&name=${encodeURIComponent(req.name)}&lang=${req.language}`
+    void navigator.clipboard.writeText(url)
+    toastPeople('Линкът е копиран')
+  }
+
+  function onStageDragOver(e: DragEvent) {
+    if (
+      !dragPeople &&
+      !e.dataTransfer.types.includes('text/omnivvoice-subscriber')
+    ) {
+      return
+    }
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDropOverStage(true)
+  }
+
+  function onStageDrop(e: DragEvent) {
+    e.preventDefault()
+    setDropOverStage(false)
+    setDragPeople(false)
+    const subId = e.dataTransfer.getData('text/omnivvoice-subscriber')
+    if (subId) void inviteSubscriberByDrag(subId)
   }
 
   async function endAsHost() {
@@ -423,7 +663,37 @@ function RoomInner() {
         </p>
       )}
 
-      <main className="ov-stage relative mx-auto mt-4 flex w-full max-w-6xl flex-1 flex-col gap-3 rounded-[32px] border border-[var(--panel-border)] p-4">
+      <div className="mx-auto mt-4 flex w-full max-w-6xl flex-1 flex-col gap-3 lg:flex-row">
+        {!isGuest ? (
+          <RoomPeopleDock
+            subscribers={prefs.subscribers}
+            memberIds={(conv?.members || []).map((m) => m.id)}
+            joinRequests={joinRequests}
+            dropActive={dragPeople}
+            onDropSubscriber={(id) => void inviteSubscriberByDrag(id)}
+            onAdmit={admitJoinRequest}
+            onDecline={declineJoinRequest}
+            onCopyInvite={copyJoinInvite}
+            onDragActiveChange={setDragPeople}
+          />
+        ) : null}
+
+        <main
+          className={`ov-stage relative flex min-w-0 flex-1 flex-col gap-3 rounded-[32px] border p-4 transition ${
+            dropOverStage
+              ? 'border-[var(--accent)] bg-[var(--accent)]/10 ring-2 ring-[var(--accent)]/50'
+              : 'border-[var(--panel-border)]'
+          }`}
+          onDragOver={isGuest ? undefined : onStageDragOver}
+          onDragLeave={() => setDropOverStage(false)}
+          onDrop={isGuest ? undefined : onStageDrop}
+        >
+          {dropOverStage ? (
+            <div className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-3xl border-2 border-dashed border-[var(--accent)] bg-black/50 text-sm font-semibold text-[var(--accent)]">
+              Пусни абоната тук — покана за вход в стаята
+            </div>
+          ) : null}
+
         {useBackendRoom ? (
           <LiveKitStage
             roomId={params.id}
@@ -478,6 +748,21 @@ function RoomInner() {
                 </div>
               </article>
             ))}
+            {(conv?.joinRequests || [])
+              .filter((r) => r.status === 'pending')
+              .map((req) => (
+                <article
+                  key={req.id}
+                  className="relative flex min-h-[180px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-sky-300/40 bg-sky-500/10 p-3"
+                >
+                  <p className="text-sm font-semibold text-white">{req.name}</p>
+                  <p className="mt-1 text-[11px] text-sky-100/80">
+                    {req.kind === 'knock'
+                      ? 'иска да влезе'
+                      : 'поканен · чака да влезе'}
+                  </p>
+                </article>
+              ))}
           </div>
         )}
 
@@ -690,6 +975,13 @@ function RoomInner() {
           </div>
         </div>
       </main>
+      </div>
+
+      {peopleToast ? (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[90] -translate-x-1/2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black shadow-lg">
+          {peopleToast}
+        </div>
+      ) : null}
 
       <VirtualRoomSelector
         open={studioOpen}

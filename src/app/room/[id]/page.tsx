@@ -109,6 +109,7 @@ import {
   isTtsSpeaking,
   unlockMediaPlayback,
   unlockSpeechSynthesis,
+  setTtsAudibleListener,
   useLiveTranslation,
 } from '@/lib/translation'
 import {
@@ -870,6 +871,14 @@ function RoomInner() {
       window.removeEventListener('pointerdown', unlock)
       window.removeEventListener('keydown', unlock)
     }
+  }, [])
+
+  // When translated audio actually plays → mute raw remote (only-TTS mode)
+  useEffect(() => {
+    setTtsAudibleListener(() => {
+      stageRef.current?.confirmTranslationAudio?.()
+    })
+    return () => setTtsAudibleListener(null)
   }, [])
 
   useEffect(() => {

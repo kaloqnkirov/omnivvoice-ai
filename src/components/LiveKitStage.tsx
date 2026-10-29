@@ -23,7 +23,7 @@ import {
 } from 'livekit-client'
 
 /** Visible on the yellow Allow button — proves the phone loaded this build */
-const MEDIA_BUILD = 'cam21'
+const MEDIA_BUILD = 'cam22'
 import {
   BackgroundProcessor,
   supportsBackgroundProcessors,
@@ -103,6 +103,11 @@ export type LiveKitStageHandle = {
   }) => Promise<boolean>
   /** Browser autoplay unlock — required or remote mic is silent */
   unlockRemoteAudio: () => Promise<void>
+  /**
+   * After translated TTS actually plays: mute raw remote permanently
+   * while translation stays on (only-translation mode).
+   */
+  confirmTranslationAudio: () => void
 }
 
 type Props = {
@@ -519,6 +524,8 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
   duckRawRef.current = duckRawRemoteMic
   const silencePublishedRef = useRef(silencePublishedMic)
   silencePublishedRef.current = silencePublishedMic
+  /** True after translated TTS actually played — then raw stays muted */
+  const translationAudioOkRef = useRef(false)
   const onVoiceBridgeRef = useRef(onVoiceBridge)
   onVoiceBridgeRef.current = onVoiceBridge
   const onRemoteLanguagesRef = useRef(onRemoteLanguages)
@@ -615,13 +622,23 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
   }
 
   /**
-   * Translation ON → never play raw remote mic (EN/TR/…).
-   * Listener hears only VoiceBridge TTS in their chosen language.
+   * Translation ducking:
+   * - Mute raw while TTS plays (hear only translation).
+   * - After first successful TTS → mute raw for good while translating.
+   * - Before that → keep raw so a missed VoiceBridge ≠ total silence.
    */
   function wantHearRawRemoteMic() {
     if (!speakerOnRef.current) return false
-    if (duckRawRef.current) return false
+    if (!duckRawRef.current) return true
+    if (isTtsSpeaking()) return false
+    if (translationAudioOkRef.current) return false
     return true
+  }
+
+  function confirmTranslationAudio() {
+    if (!duckRawRef.current) return
+    translationAudioOkRef.current = true
+    muteAllRemoteRawMics()
   }
 
   /** Chrome/iOS block WebRTC playback until startAudio() runs in a user gesture */
@@ -679,7 +696,7 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
 
   function duckRemoteAudio(identity: string, durationMs: number) {
     if (!duckRawRef.current) return
-    // Force mute now; interval + isTtsSpeaking() restores raw after TTS ends
+    // Force mute now — stays muted while translation duck is on
     applyRemoteAudioVolume(identity, 0)
     const host = remoteAudioRef.current
     host
@@ -1131,6 +1148,7 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
     getLocalIdentity: () => roomRef.current?.localParticipant?.identity ?? null,
     armLocalMedia,
     unlockRemoteAudio: () => ensureRemoteAudioPlayback(),
+    confirmTranslationAudio,
   }))
 
   async function stopProcessor(track: LocalVideoTrack | null) {
@@ -1381,6 +1399,9 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
 
   // Keep remote volumes in sync with speaker / translation / TTS gate
   useEffect(() => {
+    if (!duckRawRemoteMic) {
+      translationAudioOkRef.current = false
+    }
     muteAllRemoteRawMics()
     if (!duckRawRemoteMic) return
     const id = window.setInterval(() => {

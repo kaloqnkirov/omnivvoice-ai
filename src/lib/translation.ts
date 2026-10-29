@@ -324,6 +324,7 @@ async function playBlobWithRate(blob: Blob, playbackRate: number) {
         try {
           src.start(0)
           mediaPlaybackUnlocked = true
+          notifyTtsAudible()
         } catch {
           finish()
         }
@@ -365,6 +366,7 @@ async function playBlobWithRate(blob: Blob, playbackRate: number) {
     cloudAudio!.onerror = finish
     void cloudAudio!.play().then(() => {
       mediaPlaybackUnlocked = true
+      notifyTtsAudible()
     }).catch(() => finish())
   })
 }
@@ -651,6 +653,20 @@ export function unlockSpeechSynthesis() {
 
 /** While local TTS plays, ignore mic STT — stops echo loop (repeat translations) */
 let ttsGateUntil = 0
+/** Fired when translated audio actually starts (so we can mute raw mic safely) */
+let ttsAudibleListener: (() => void) | null = null
+
+export function setTtsAudibleListener(fn: (() => void) | null) {
+  ttsAudibleListener = fn
+}
+
+function notifyTtsAudible() {
+  try {
+    ttsAudibleListener?.()
+  } catch {
+    /* ignore */
+  }
+}
 
 export function stopSpeaking() {
   ttsGateUntil = 0

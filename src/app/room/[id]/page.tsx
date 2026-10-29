@@ -2887,6 +2887,7 @@ function RoomInner() {
               onClick={() => {
                 setSpeakerOn((v) => {
                   if (v) stopSpeaking()
+                  else void stageRef.current?.unlockRemoteAudio?.()
                   return !v
                 })
               }}

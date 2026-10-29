@@ -541,6 +541,11 @@ export function speakText(
     preferLocal?: boolean
     /** Skip OS TTS; always use pitched cloud/WebAudio (voice picker) */
     forcePitchedCloud?: boolean
+    /**
+     * VoiceBridge receive path: cloud first (audible on phones), OS fallback.
+     * Do not trust speakLocal alone — it often “starts” with no sound.
+     */
+    bridgePlayback?: boolean
   } = {}
 ) {
   if (typeof window === 'undefined') return
@@ -564,7 +569,10 @@ export function speakText(
   const pitchOff =
     typeof options.pitch === 'number' && Math.abs(options.pitch - 1) > 0.12
   const forceCloud =
-    options.forcePitchedCloud || Boolean(options.voicePreset) || pitchOff
+    options.forcePitchedCloud ||
+    Boolean(options.voicePreset) ||
+    pitchOff ||
+    Boolean(options.bridgePlayback)
 
   if (!options.queue) {
     try {
@@ -579,9 +587,16 @@ export function speakText(
     }
   }
 
-  // Calls/VoiceBridge: prefer OS TTS first so phones never go fully silent
-  // when /api/tts is slow or blocked. Presets/samples still force cloud.
-  if (!forceCloud) {
+  // VoiceBridge / presets: cloud first so translation is actually heard
+  if (forceCloud || options.bridgePlayback) {
+    void speakViaCloudTts(trimmed, lang, {
+      ...tone,
+      allowSpeechFallback: !options.forcePitchedCloud,
+    })
+    return
+  }
+
+  if (options.preferLocal !== false) {
     const ok = speakLocal(trimmed, {
       lang,
       voiceURI: options.voiceURI,
@@ -595,7 +610,7 @@ export function speakText(
 
   void speakViaCloudTts(trimmed, lang, {
     ...tone,
-    allowSpeechFallback: !options.forcePitchedCloud,
+    allowSpeechFallback: true,
   })
 }
 
@@ -951,9 +966,6 @@ export function useLiveTranslation(options: {
     }
 
     recognition.onresult = (event) => {
-      // Ignore mic while we play TTS — otherwise VoiceBridge echoes forever
-      if (isTtsSpeaking()) return
-
       let interim = ''
       let finalText = ''
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -963,11 +975,16 @@ export function useLiveTranslation(options: {
         else interim += transcript
       }
 
+      const finalTrim = finalText.trim()
+      // While our TTS plays, ignore interim (echo) but ALWAYS send finals —
+      // otherwise guest EN never reaches host as VoiceBridge.
+      if (isTtsSpeaking() && !finalTrim) return
+
       const interimTrim = interim.trim()
       latestInterimRef.current = interimTrim
       setInterimText(interimTrim)
       setLevel(
-        Math.min(1, (interimTrim.length || finalText.trim().length) / 40)
+        Math.min(1, (interimTrim.length || finalTrim.length) / 40)
       )
 
       if (endpointTimerRef.current) {
@@ -976,19 +993,19 @@ export function useLiveTranslation(options: {
       }
 
       // Quota-friendly: translate after a pause, not every word
-      if (interimTrim) {
+      if (interimTrim && !isTtsSpeaking()) {
         endpointTimerRef.current = window.setTimeout(() => {
           if (!mountedRef.current || isTtsSpeaking()) return
           commitIfReady(latestInterimRef.current, true)
         }, ENDPOINT_MS)
       }
 
-      if (finalText.trim()) {
+      if (finalTrim) {
         if (endpointTimerRef.current) {
           window.clearTimeout(endpointTimerRef.current)
           endpointTimerRef.current = null
         }
-        commitIfReady(finalText.trim(), true)
+        commitIfReady(finalTrim, true)
         window.setTimeout(() => {
           if (!latestInterimRef.current) {
             committedSourceRef.current = ''

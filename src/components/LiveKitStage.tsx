@@ -23,7 +23,7 @@ import {
 } from 'livekit-client'
 
 /** Visible on the yellow Allow button — proves the phone loaded this build */
-const MEDIA_BUILD = 'cam19'
+const MEDIA_BUILD = 'cam20'
 import {
   BackgroundProcessor,
   supportsBackgroundProcessors,
@@ -1133,7 +1133,10 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
       }
       const bytes = new TextEncoder().encode(JSON.stringify(packet))
       void room.localParticipant
-        .publishData(bytes, { reliable: true })
+        .publishData(bytes, {
+          reliable: true,
+          topic: 'voicebridge',
+        })
         .catch(() => undefined)
     },
     duckRemoteAudio,

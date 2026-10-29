@@ -665,15 +665,19 @@ function RoomInner() {
           translatedText: spoken,
           at: new Date().toISOString(),
         })
-        // Speak MY language immediately; duck raw mic via isTtsSpeaking gate
+        // Cloud TTS first (bridgePlayback) so BG is heard over raw EN
         unlockMediaPlayback()
-        stageRef.current?.duckRemoteAudio(fromKey, 8000)
+        void stageRef.current?.unlockRemoteAudio?.()
+        stageRef.current?.duckRemoteAudio(
+          fromKey,
+          Math.min(20000, Math.max(1500, spoken.split(/\s+/).length * 420 + 800))
+        )
         speakText(spoken, {
           lang: nativeLang.speechCode,
-          voiceURI: prefs.voice.voiceURI || undefined,
           rate: prefs.voice.rate ?? 1.05,
-          pitch: prefs.voice.pitch ?? 1,
+          pitch: 1,
           queue: false,
+          bridgePlayback: true,
         })
       })()
     },
@@ -2562,9 +2566,8 @@ function RoomInner() {
             pipCorner={streamPrefs?.pipCorner || 'br'}
             contentHint={streamPrefs?.contentHint || 'screenshare'}
             silhouetteReactions={isStreamingMode ? pipReactions : []}
-            // Duck OFF until startAudio + VoiceBridge are solid — permanent
-            // mute caused "no sound at all". TTS still speaks BG on top.
-            duckRawRemoteMic={false}
+            // Duck raw only while translated TTS plays (isTtsSpeaking gate)
+            duckRawRemoteMic={translationOn}
             silencePublishedMic={false}
             onVoiceBridge={onVoiceBridgePacket}
             onRemoteLanguages={onRemoteLanguages}

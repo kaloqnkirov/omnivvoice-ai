@@ -85,6 +85,7 @@ import {
   type GuestStagePrefs,
 } from '@/lib/guest-session'
 import type { StageCutout } from '@/lib/stage-cutout'
+import { useMicChunkStt } from '@/hooks/useMicChunkStt'
 import { useRemotePeerStt } from '@/hooks/useRemotePeerStt'
 import { useRoomSync } from '@/hooks/useRoomSync'
 import {
@@ -302,6 +303,9 @@ function RoomInner() {
   const [remoteSttTracks, setRemoteSttTracks] = useState<
     Array<{ identity: string; track: MediaStreamTrack }>
   >([])
+  const [localMicTrack, setLocalMicTrack] = useState<MediaStreamTrack | null>(
+    null
+  )
   const [ttsUnlocked, setTtsUnlocked] = useState(false)
   const [intelOpen, setIntelOpen] = useState(false)
   const [intelSelecting, setIntelSelecting] = useState(true)
@@ -886,13 +890,41 @@ function RoomInner() {
     return () => setTtsAudibleListener(null)
   }, [])
 
+  // Keep local mic track for chunked STT (guest/host send without Web Speech)
+  useEffect(() => {
+    if (!micReady) {
+      setLocalMicTrack(null)
+      return
+    }
+    const pull = () => {
+      const t = stageRef.current?.getLocalMicTrack?.() ?? null
+      setLocalMicTrack((prev) => (prev === t ? prev : t))
+    }
+    pull()
+    const id = window.setInterval(pull, 1000)
+    return () => window.clearInterval(id)
+  }, [micReady])
+
   /**
-   * Host-side STT on guest mic — guests (esp. Huawei/iPhone) often lack
-   * Web Speech, so VoiceBridge never fires from their phone. We transcribe
-   * their LiveKit audio here and run the same translate→TTS path.
+   * SEND path: MediaRecorder on MY mic → /api/transcribe → VoiceBridge.
+   * Critical for guests (and any browser where Web Speech is flaky).
+   */
+  useMicChunkStt({
+    enabled: Boolean(translationOn && micOn && micReady && localMicTrack),
+    track: localMicTrack,
+    identity: 'local',
+    sourceLangHint: nativeLang.code,
+    onTranscript: (text) => {
+      sendBridgeSource(text)
+    },
+    onError: (message) => setTranslateError(`STT изпращане: ${message}`),
+  })
+
+  /**
+   * RECEIVE path backup: host transcribes remote LiveKit audio
+   * if the peer never sent VoiceBridge packets.
    */
   useRemotePeerStt({
-    // Any listener: transcribe remote mics locally (guest phones often lack Web Speech)
     enabled: Boolean(translationOn && speakerOn && micReady),
     sourceLangHint: peerLangCode || 'en',
     remotes: remoteSttTracks,
@@ -906,7 +938,7 @@ function RoomInner() {
         from,
       })
     },
-    onError: (message) => setTranslateError(`Превод STT: ${message}`),
+    onError: (message) => setTranslateError(`STT прием: ${message}`),
   })
 
   useEffect(() => {

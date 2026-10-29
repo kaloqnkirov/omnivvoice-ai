@@ -33,10 +33,11 @@ export async function POST(request: NextRequest) {
       ? `Transcribe this speech (likely language code: ${hint}). Return ONLY the spoken words, no labels or quotes.`
       : 'Transcribe this speech. Return ONLY the spoken words, no labels or quotes.'
 
+    // Prefer models verified working with current GEMINI_API_KEY
     const models = [
-      'gemini-3.8-flash',
       'gemini-3.6-flash',
       'gemini-3.5-flash-lite',
+      'gemini-3.8-flash',
       'gemini-2.5-flash',
       'gemini-flash-latest',
     ]

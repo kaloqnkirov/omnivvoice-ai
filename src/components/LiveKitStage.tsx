@@ -23,7 +23,7 @@ import {
 } from 'livekit-client'
 
 /** Visible on the yellow Allow button — proves the phone loaded this build */
-const MEDIA_BUILD = 'cam24'
+const MEDIA_BUILD = 'cam25'
 import {
   BackgroundProcessor,
   supportsBackgroundProcessors,
@@ -108,6 +108,8 @@ export type LiveKitStageHandle = {
    * while translation stays on (only-translation mode).
    */
   confirmTranslationAudio: () => void
+  /** Local mic MediaStreamTrack for chunked STT (guest VoiceBridge without Web Speech) */
+  getLocalMicTrack: () => MediaStreamTrack | null
 }
 
 type Props = {
@@ -1166,6 +1168,8 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
     armLocalMedia,
     unlockRemoteAudio: () => ensureRemoteAudioPlayback(),
     confirmTranslationAudio,
+    getLocalMicTrack: () =>
+      audioTrackRef.current?.mediaStreamTrack ?? null,
   }))
 
   async function stopProcessor(track: LocalVideoTrack | null) {

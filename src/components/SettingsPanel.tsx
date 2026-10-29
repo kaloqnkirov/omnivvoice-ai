@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { startTransition, useEffect, useMemo, useState } from 'react'
 import {
   Bell,
   BookOpen,
@@ -23,8 +23,45 @@ import {
   X,
 } from 'lucide-react'
 import { APP_LANGUAGES, PLANS, planAllowsSecretary } from '@/lib/languages'
+import { settingsTabsForPlan } from '@/lib/plan-modes'
 import { tracksForPlan, type MusicTrack } from '@/lib/music'
 import { STREAM_PLATFORMS, type StreamPlatformId } from '@/lib/platforms'
+import {
+  CAPTION_STYLES,
+  CHAT_MODES,
+  LATENCY_MODES,
+  PIP_CORNERS,
+  STREAM_SCENES,
+  STREAMING_OPTION_GROUPS,
+  contentHintForScene,
+  type CaptionStyleId,
+  type LatencyMode,
+  type PipCorner,
+  type StreamChatMode,
+  type StreamSceneId,
+  type StreamingSettings,
+} from '@/lib/streaming'
+import {
+  BUSINESS_ROOM_PRESETS,
+  CONTRACT_COMPOSE_FROM,
+  DEFAULT_BUSINESS_ROOM,
+  type ContractComposeFrom,
+} from '@/lib/business-presets'
+import {
+  AD_FORMATS,
+  AD_PLACEMENTS,
+  DEFAULT_ADS,
+  newCreativeId,
+  type AdFormat,
+  type AdPlacement,
+  type AdsSettings,
+} from '@/lib/ads'
+import { BUSINESS_INTEL_OPTIONS } from '@/lib/business-intel'
+import {
+  parseSpotifyUrl,
+  spotifySearchUrl,
+  SPOTIFY_QUICK_PICKS,
+} from '@/lib/spotify'
 import type {
   AppPreferences,
   ChatSettings,
@@ -46,12 +83,26 @@ import {
 } from '@/lib/website-embed'
 import {
   THEME_OPTIONS,
-  WALLPAPER_PRESETS,
   type AppearanceSettings,
   type ThemeId,
 } from '@/lib/appearance'
-import { signOutBackend } from '@/lib/auth-client'
+import { isClientBackendEnabled, signOutBackend } from '@/lib/auth-client'
+import { guestInviteUrl } from '@/lib/invite-url'
+import { createServerGuestInvite } from '@/lib/create-guest-invite'
+import {
+  VOICE_PRESETS,
+  resolveVoicePreset,
+  type VoicePresetId,
+} from '@/lib/voice-presets'
+import {
+  speakVoicePresetSample,
+  unlockSpeechSynthesis,
+} from '@/lib/translation'
+import { enableAllCoachmarks } from '@/lib/coachmarks'
 import { useTheme } from '@/lib/theme'
+import { isAdminUser } from '@/lib/access'
+import AdminPlanGrantsPanel from '@/components/AdminPlanGrantsPanel'
+import ShareGrowPanel from '@/components/ShareGrowPanel'
 
 type Tab =
   | 'account'
@@ -70,45 +121,34 @@ type Tab =
   | 'secretary'
   | 'experience'
 
+type SettingsScope = 'room' | 'full'
+
+const ROOM_SCOPE_TABS: Array<{ id: Tab; label: string }> = [
+  { id: 'room', label: 'Стая / A/V' },
+  { id: 'guests', label: 'Guest линк' },
+  { id: 'voice', label: 'Микрофон / език' },
+]
+
 type SettingsPanelProps = {
   open: boolean
   onClose: () => void
   onOpenRegister: () => void
   /** Open on a specific tab (e.g. room vs full fine-tuning) */
   initialTab?: Tab
+  /** room = само жива стая; full = всички фини настройки */
+  scope?: SettingsScope
 }
-
-const TABS: Array<[Tab, string]> = [
-  ['account', 'Акаунт'],
-  ['websites', 'Сайтове'],
-  ['room', 'Стая'],
-  ['chat', 'Чат'],
-  ['podcast', 'Подкаст'],
-  ['platforms', 'Платформи'],
-  ['guests', 'Guest'],
-  ['voice', 'Глас'],
-  ['music', 'Музика'],
-  ['privacy', 'Privacy'],
-  ['notifications', 'Известия'],
-  ['phrasebook', 'Фрази'],
-  ['experience', 'Experience'],
-  ['subscribers', 'Абонати'],
-  ['secretary', 'Секретар'],
-]
 
 export default function SettingsPanel({
   open,
   onClose,
   onOpenRegister,
   initialTab = 'account',
+  scope = 'full',
 }: SettingsPanelProps) {
   const { theme, toggleTheme, prefs, updatePrefs, setAppearance, appearance } =
     useTheme()
   const [tab, setTab] = useState<Tab>(initialTab)
-
-  useEffect(() => {
-    if (open) setTab(initialTab)
-  }, [open, initialTab])
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [newSubName, setNewSubName] = useState('')
   const [newSubContact, setNewSubContact] = useState('')
@@ -119,7 +159,7 @@ export default function SettingsPanel({
   const [siteDomain, setSiteDomain] = useState('mysite.bg')
   const [siteChannel, setSiteChannel] = useState<WebsiteChannel>('both')
   const [platformFilter, setPlatformFilter] = useState<
-    'all' | 'video' | 'social' | 'audio' | 'community'
+    'all' | 'video' | 'social' | 'audio' | 'community' | 'watch'
   >('all')
 
   const [mediaDevices, setMediaDevices] = useState<{
@@ -156,23 +196,54 @@ export default function SettingsPanel({
 
   const plan = prefs.user?.plan || 'free'
   const musicTracks = useMemo(() => tracksForPlan(plan), [plan])
-  const podcastLocked = plan !== 'podcast' && plan !== 'business'
+  const visibleTabs = useMemo(() => {
+    if (scope === 'room') return ROOM_SCOPE_TABS
+    return settingsTabsForPlan(plan) as Array<{ id: Tab; label: string }>
+  }, [plan, scope])
 
+  useEffect(() => {
+    if (!open) return
+    if (scope === 'room') {
+      setTab(
+        ROOM_SCOPE_TABS.some((t) => t.id === initialTab)
+          ? initialTab
+          : 'room'
+      )
+      return
+    }
+    setTab(initialTab)
+  }, [open, initialTab, scope])
+
+  useEffect(() => {
+    if (!visibleTabs.some((t) => t.id === tab)) {
+      setTab(visibleTabs[0]?.id || 'account')
+    }
+  }, [visibleTabs, tab])
+
+  // Voice others hear you with — pick a voice in the language they listen in
+  const speakAsLangCode = prefs.voice.targetLanguage || 'en'
   const filteredVoices = useMemo(() => {
-    const target = APP_LANGUAGES.find(
-      (lang) => lang.code === prefs.voice.targetLanguage
-    )
+    const target = APP_LANGUAGES.find((lang) => lang.code === speakAsLangCode)
     if (!target) return voices
     const matched = voices.filter((voice) =>
       voice.lang.toLowerCase().startsWith(target.code)
     )
     return matched.length ? matched : voices
-  }, [voices, prefs.voice.targetLanguage])
+  }, [voices, speakAsLangCode])
 
   const platforms = useMemo(() => {
     if (platformFilter === 'all') return STREAM_PLATFORMS
     return STREAM_PLATFORMS.filter((p) => p.category === platformFilter)
   }, [platformFilter])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
 
   if (!open) return null
 
@@ -180,52 +251,91 @@ export default function SettingsPanel({
   const canSecretary = user ? planAllowsSecretary(user.plan) : false
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001'
-  const guestUrl = `${origin}/join?code=${encodeURIComponent(prefs.room.guestLinkCode)}&conv=${encodeURIComponent(prefs.conversations[0]?.id || 'conv-1')}&channel=both`
+  const latestInvite = (prefs.invites || []).find((i) => i.active !== false)
+  const guestUrl = latestInvite
+    ? `${origin}/join?invite=${encodeURIComponent(latestInvite.code)}&conv=${encodeURIComponent(latestInvite.conversationId)}&channel=${latestInvite.channel || 'both'}`
+    : isClientBackendEnabled()
+      ? 'Натисни „Копирай invite линк“ за нова покана'
+      : `${origin}/join?invite=${encodeURIComponent(prefs.room.guestLinkCode)}&conv=&channel=both`
   const siteGuestHint = prefs.websites[0]
-    ? `${origin}/join?site=${encodeURIComponent(prefs.websites[0].siteKey)}&conv=${encodeURIComponent(prefs.conversations[0]?.id || 'conv-1')}&channel=both`
+    ? `${origin}/join?site=${encodeURIComponent(prefs.websites[0].siteKey)}&channel=both`
     : guestUrl
   const connectedCount = Object.values(prefs.podcast.platforms).filter(
     (p) => p.connected
   ).length
 
   function patchRoom(patch: Partial<RoomSettings>) {
-    updatePrefs({ room: { ...prefs.room, ...patch } })
+    startTransition(() => updatePrefs((current) => ({ room: patch })))
   }
   function patchChat(patch: Partial<ChatSettings>) {
-    updatePrefs({ chat: { ...prefs.chat, ...patch } })
+    startTransition(() => updatePrefs((current) => ({ chat: patch })))
   }
   function patchPodcast(patch: Partial<PodcastSettings>) {
-    updatePrefs({ podcast: { ...prefs.podcast, ...patch } })
+    startTransition(() =>
+      updatePrefs((current) => ({
+        podcast: { ...current.podcast, ...patch },
+      }))
+    )
+  }
+  function patchStreaming(patch: Partial<StreamingSettings>) {
+    startTransition(() =>
+      updatePrefs((current) => ({
+        podcast: {
+          ...current.podcast,
+          streaming: { ...current.podcast.streaming, ...patch },
+        },
+      }))
+    )
   }
   function patchPlatform(
     id: StreamPlatformId,
     patch: Partial<PodcastSettings['platforms'][StreamPlatformId]>
   ) {
-    updatePrefs({
-      podcast: {
-        ...prefs.podcast,
-        platforms: {
-          ...prefs.podcast.platforms,
-          [id]: { ...prefs.podcast.platforms[id], ...patch },
+    startTransition(() =>
+      updatePrefs((current) => ({
+        podcast: {
+          ...current.podcast,
+          platforms: {
+            ...current.podcast.platforms,
+            [id]: { ...current.podcast.platforms[id], ...patch },
+          },
         },
-      },
-    })
+      }))
+    )
   }
   function patchNotifications(patch: Partial<NotificationSettings>) {
-    updatePrefs({ notifications: { ...prefs.notifications, ...patch } })
+    startTransition(() =>
+      updatePrefs((current) => ({ notifications: patch }))
+    )
   }
   function patchVoice(patch: Partial<VoiceSettings>) {
-    updatePrefs({ voice: { ...prefs.voice, ...patch } })
+    startTransition(() => updatePrefs((current) => ({ voice: patch })))
   }
   function patchMusic(patch: Partial<MusicSettings>) {
-    updatePrefs({ music: { ...prefs.music, ...patch } })
+    startTransition(() => updatePrefs((current) => ({ music: patch })))
   }
   function patchExperience(patch: Partial<ExperienceSettings>) {
-    updatePrefs({ experience: { ...prefs.experience, ...patch } })
+    startTransition(() =>
+      updatePrefs((current) => ({
+        experience: { ...current.experience, ...patch },
+      }))
+    )
+  }
+  function patchAds(patch: Partial<AdsSettings>) {
+    startTransition(() =>
+      updatePrefs((current) => ({
+        ads: {
+          ...(current.ads || DEFAULT_ADS),
+          ...patch,
+        },
+      }))
+    )
   }
   function patchUser(patch: Partial<NonNullable<AppPreferences['user']>>) {
-    if (!prefs.user) return
-    updatePrefs({ user: { ...prefs.user, ...patch } })
+    updatePrefs((current) => {
+      if (!current.user) return {}
+      return { user: { ...current.user, ...patch } }
+    })
   }
 
   function addSubscriber() {
@@ -240,7 +350,9 @@ export default function SettingsPanel({
       plan: 'free',
       presence: 'offline',
     }
-    updatePrefs({ subscribers: [subscriber, ...prefs.subscribers] })
+    updatePrefs((current) => ({
+      subscribers: [subscriber, ...current.subscribers],
+    }))
     setNewSubName('')
     setNewSubContact('')
   }
@@ -253,17 +365,88 @@ export default function SettingsPanel({
       text: newPhrase.trim(),
       language: prefs.user?.nativeLanguage || 'bg',
     }
-    patchExperience({ phrasebook: [phrase, ...prefs.experience.phrasebook] })
+    updatePrefs((current) => ({
+      experience: {
+        ...current.experience,
+        phrasebook: [phrase, ...current.experience.phrasebook],
+      },
+    }))
     setNewPhrase('')
   }
 
   async function copyGuestLink() {
     try {
-      await navigator.clipboard.writeText(guestUrl)
+      const activeConv = prefs.conversations.find((c) => c.sessionOpen !== false)
+      const result = await createServerGuestInvite({
+        roomId: activeConv?.id,
+        roomTitle: activeConv?.title || prefs.room.name || 'Guest room',
+        label: 'Guest invite',
+        channel: 'both',
+      })
+      if (!result.ok) {
+        window.alert(result.error)
+        return
+      }
+      updatePrefs((current) => {
+        const hasConv = current.conversations.some(
+          (c) => c.id === result.roomId || c.id === result.migratedFrom
+        )
+        return {
+          invites: [
+            {
+              id: result.inviteId,
+              code: result.code,
+              conversationId: result.roomId,
+              label: result.label,
+              channel: 'both' as const,
+              createdAt: new Date().toISOString(),
+              active: true,
+            },
+            ...(current.invites || []),
+          ],
+          room: { ...current.room, allowGuests: true },
+          conversations: hasConv
+            ? current.conversations.map((c) =>
+                c.id === result.roomId || c.id === result.migratedFrom
+                  ? {
+                      ...c,
+                      id: result.roomId,
+                      sessionOpen: true,
+                      space: 'room' as const,
+                    }
+                  : c
+              )
+            : [
+                {
+                  id: result.roomId,
+                  title: activeConv?.title || prefs.room.name || 'Guest room',
+                  isGroup: true,
+                  space: 'room' as const,
+                  members: activeConv?.members || [],
+                  lastMessage: 'Сървърна стая готова за гости',
+                  updatedAt: new Date().toISOString(),
+                  unread: 0,
+                  pinned: false,
+                  muted: false,
+                  messages: activeConv?.messages || [],
+                  saveChat: true,
+                  disappearAfter: 'off' as const,
+                  sessionOpen: true,
+                  activeGuestIds: [],
+                  joinRequests: [],
+                },
+                ...current.conversations,
+              ],
+        }
+      })
+      await navigator.clipboard.writeText(result.url)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1600)
-    } catch {
+    } catch (err) {
       setCopied(false)
+      window.alert(
+        err instanceof Error ? err.message : 'Копирането не успя'
+      )
     }
   }
 
@@ -314,44 +497,62 @@ export default function SettingsPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex justify-end bg-black/40 backdrop-blur-sm">
-      <aside className="ov-panel flex h-full w-full max-w-xl flex-col border-l border-[var(--panel-border)] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[var(--panel-border)] px-5 py-4">
+    <div
+      className="fixed inset-0 z-[90] flex justify-end overflow-hidden bg-black/45 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+      role="presentation"
+    >
+      <aside
+        className="ov-panel flex h-full min-h-0 w-full max-w-xl flex-col overflow-hidden border-l border-[var(--panel-border)] shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Настройки"
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--panel-border)] px-5 py-4">
           <div>
             <p className="ov-kicker">
-              {initialTab === 'room'
+              {scope === 'room'
                 ? 'Room setup'
                 : initialTab === 'music'
                   ? 'Audio'
                   : 'Control center'}
             </p>
             <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-              {initialTab === 'room'
+              {scope === 'room'
                 ? 'Настройки на стая'
-                : initialTab === 'music'
+                : initialTab === 'music' && scope === 'full'
                   ? 'Звук и музика'
-                  : 'Всички фини настройки'}
+                  : 'Настройки на приложението'}
             </h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              {initialTab === 'room'
-                ? 'Камера · микрофон · гости · качество'
+              {scope === 'room'
+                ? 'Камера · микрофон · guest линк · качество'
                 : initialTab === 'music'
                   ? 'Амбиент писти и аудио предпочитания'
-                  : `Сайтове · Стая · Чат · Подкаст · ${connectedCount} платформи`}
+                  : `Акаунт · чат · теми · ${connectedCount} платформи`}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={toggleTheme} className="ov-icon-btn">
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
-            <button type="button" onClick={onClose} className="ov-icon-btn">
+          <div className="flex shrink-0 items-center gap-2">
+            {scope === 'full' ? (
+              <button type="button" onClick={toggleTheme} className="ov-icon-btn">
+                {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className="ov-icon-btn"
+              aria-label="Затвори настройките"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        <div className="flex gap-1 overflow-x-auto border-b border-[var(--panel-border)] px-3 py-2">
-          {TABS.map(([id, label]) => (
+        <div className="ov-scroll-x flex shrink-0 gap-1 border-b border-[var(--panel-border)] px-3 py-2">
+          {visibleTabs.map(({ id, label }) => (
             <button
               key={id}
               type="button"
@@ -367,7 +568,7 @@ export default function SettingsPanel({
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="ov-scroll min-h-0 flex-1 px-5 py-4 pb-10">
           {tab === 'account' && (
             <div className="space-y-4">
               {user ? (
@@ -398,6 +599,88 @@ export default function SettingsPanel({
                     </select>
                   </Field>
                   <InfoRow label="План" value={PLANS[user.plan].label} />
+                  {isAdminUser(user) ? (
+                    <AdminPlanGrantsPanel
+                      grants={prefs.adminPlanGrants || []}
+                      currentUser={user}
+                      subscribers={prefs.subscribers}
+                      onChangeGrants={(next) =>
+                        updatePrefs(() => ({ adminPlanGrants: next }))
+                      }
+                      onUserUpdated={(nextUser) =>
+                        updatePrefs(() => ({ user: nextUser }))
+                      }
+                    />
+                  ) : null}
+                  <ShareGrowPanel
+                    hostId={user.id}
+                    hostName={user.displayName || user.fullName}
+                  />
+                  <div className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-3 text-[11px] text-[var(--muted)]">
+                    Бонус Cloud превод:{' '}
+                    <strong className="text-[var(--foreground)]">
+                      {(prefs.translateBonusChars || 0).toLocaleString('bg-BG')}{' '}
+                      символа
+                    </strong>
+                    {' '}
+                    (~$
+                    {(
+                      ((prefs.translateBonusChars || 0) / 1_000_000) *
+                      20
+                    ).toFixed(0)}
+                    )
+                    {(prefs.referralInvitesClaimed || 0) > 0
+                      ? ` · от ${prefs.referralInvitesClaimed} покани`
+                      : ' · покана +200k · инсталация +150k (еднократно) · таван ~2M'}
+                    . Към Business/Podcast квотата; на Normal отключва Cloud
+                    докато има бонус.
+                  </div>
+                  <div className="rounded-2xl border border-amber-400/25 bg-amber-500/5 p-3 space-y-2">
+                    <p className="text-xs font-semibold">Обучение</p>
+                    <p className="text-[10px] text-[var(--muted)]">
+                      Стартово обучение при инсталация + балончета „Как се ползва“
+                      при клик на опции.
+                    </p>
+                    <button
+                      type="button"
+                      className="ov-btn-primary w-full !py-2 text-xs"
+                      onClick={() => {
+                        enableAllCoachmarks()
+                        window.dispatchEvent(
+                          new Event('omnivvoice:onboarding')
+                        )
+                      }}
+                    >
+                      Покажи стартовото обучение отново
+                    </button>
+                  </div>
+                  <div className="rounded-2xl border border-rose-400/25 bg-rose-500/5 p-3 space-y-2">
+                    <p className="text-xs font-semibold">Случайни запознанства</p>
+                    <p className="text-[10px] text-[var(--muted)]">
+                      По подразбиране е изключено. Ако го пуснеш, се появява бутон
+                      за мачване — възраст, откъде си, занимание, мъж/жена/и двете.
+                      Само хора с включена опция. ♥ = покана за чат · ✕ = следващ.
+                    </p>
+                    <ToggleRow
+                      label="Включи случайни запознанства"
+                      checked={Boolean(prefs.meetMatch?.enabled)}
+                      onChange={(v) =>
+                        updatePrefs((current) => ({
+                          meetMatch: {
+                            ...(current.meetMatch || {
+                              enabled: false,
+                              profile: null,
+                              passedIds: [],
+                              likedIds: [],
+                              matchedIds: [],
+                              rejectedIds: [],
+                            }),
+                            enabled: v,
+                          },
+                        }))
+                      }
+                    />
+                  </div>
                   <Field label="Компания">
                     <input
                       className="ov-field"
@@ -869,7 +1152,78 @@ export default function SettingsPanel({
               </div>
               <ToggleRow label="HD video" checked={prefs.room.hdVideo} onChange={(v) => patchRoom({ hdVideo: v })} />
               <ToggleRow label="Background blur" checked={prefs.room.backgroundBlur} onChange={(v) => patchRoom({ backgroundBlur: v })} />
-              <ToggleRow label="Virtual background" checked={prefs.room.virtualBackground} onChange={(v) => patchRoom({ virtualBackground: v })} />
+              <ToggleRow
+                label="MyFace (polish на лицето)"
+                checked={Boolean(prefs.room.myFaceEnabled)}
+                onChange={(v) => patchRoom({ myFaceEnabled: v })}
+              />
+              {prefs.room.myFaceEnabled ? (
+                <Field label="MyFace look">
+                  <select
+                    className="ov-field"
+                    value={prefs.room.myFaceLook || 'soft_glow'}
+                    onChange={(e) =>
+                      patchRoom({
+                        myFaceLook: e.target
+                          .value as RoomSettings['myFaceLook'],
+                      })
+                    }
+                  >
+                    {(
+                      [
+                        ['natural', 'Естествен'],
+                        ['soft_glow', 'Мек glow'],
+                        ['studio', 'Студио'],
+                        ['ring', 'Ринг лампа'],
+                        ['warm_skin', 'Топъл тон'],
+                        ['clear', 'Ясен'],
+                        ['cinema_face', 'Кино'],
+                        ['fresh', 'Свеж'],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <option key={id} value={id}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+              <div className="space-y-1.5 px-1">
+                <p className="text-[11px] font-semibold">Изглед на камерата</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      ['contour', 'Изрязан по контур'],
+                      ['blur', 'Замъглен фон'],
+                      ['oval', 'Овал'],
+                      ['real', 'Истинска стая'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() =>
+                        patchRoom({
+                          cutoutMode: id,
+                          virtualBackground: id !== 'real',
+                          backgroundBlur: id === 'blur',
+                        })
+                      }
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                        (prefs.room.cutoutMode || 'contour') === id
+                          ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
+                          : 'bg-[var(--chip)] text-[var(--foreground)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-[var(--muted)]">
+                  Изрязан по контур = тялото върху виртуалния тапет (като Riverside /
+                  StreamYard). Истинска = реалната стая от камерата.
+                </p>
+              </div>
               <ToggleRow label="Mirror video" checked={prefs.room.mirrorVideo} onChange={(v) => patchRoom({ mirrorVideo: v })} />
               <ToggleRow label="Noise suppression" checked={prefs.room.noiseSuppression} onChange={(v) => patchRoom({ noiseSuppression: v })} />
               <ToggleRow label="Echo cancellation" checked={prefs.room.echoCancellation} onChange={(v) => patchRoom({ echoCancellation: v })} />
@@ -943,11 +1297,499 @@ export default function SettingsPanel({
           {tab === 'podcast' && (
             <div className="space-y-3">
               <SectionTitle icon={Clapperboard} title="Подкаст & Streaming studio" />
-              {podcastLocked ? (
-                <p className="rounded-xl border border-dashed border-[var(--panel-border)] px-3 py-2 text-xs text-[var(--muted)]">
-                  Пълният broadcast пакет е най-богат в Podcast плана (Business също отключва част от live опциите).
+              <p className="rounded-xl border border-violet-500/20 bg-violet-500/5 px-3 py-2 text-[11px] text-[var(--muted)]">
+                Пълен streaming пакет (Twitch · YouTube Live · Kick · Streamlabs ·
+                Restream) + OmniVoice иновации — наличен във{' '}
+                <span className="font-semibold text-[var(--fg)]">всички планове</span>.
+                Multistream RTMP ключове → таб Platforms.
+              </p>
+
+              <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-bold text-amber-800 dark:text-amber-100">
+                    Реклами (Podcast · по желание)
+                  </p>
+                  <p className="text-[10px] text-[var(--muted)]">
+                    Ти решаваш кога — бутон „Реклама“ в стаята + къде/как да се
+                    показва.
+                  </p>
+                </div>
+                <ToggleRow
+                  label="Включи спонсорски реклами"
+                  checked={Boolean((prefs.ads || DEFAULT_ADS).podcast.enabled)}
+                  onChange={(v) =>
+                    patchAds({
+                      podcast: {
+                        ...(prefs.ads || DEFAULT_ADS).podcast,
+                        enabled: v,
+                      },
+                    })
+                  }
+                />
+                {(prefs.ads || DEFAULT_ADS).podcast.enabled ? (
+                  <>
+                    <ToggleRow
+                      label="Ръчен старт (хостът натиска „Реклама“)"
+                      checked={
+                        (prefs.ads || DEFAULT_ADS).podcast.manualTrigger !==
+                        false
+                      }
+                      onChange={(v) =>
+                        patchAds({
+                          podcast: {
+                            ...(prefs.ads || DEFAULT_ADS).podcast,
+                            manualTrigger: v,
+                          },
+                        })
+                      }
+                    />
+                    <Field label="Къде да се показва">
+                      <select
+                        className="ov-field"
+                        value={(prefs.ads || DEFAULT_ADS).podcast.placement}
+                        onChange={(e) =>
+                          patchAds({
+                            podcast: {
+                              ...(prefs.ads || DEFAULT_ADS).podcast,
+                              placement: e.target.value as AdPlacement,
+                            },
+                          })
+                        }
+                      >
+                        {AD_PLACEMENTS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.labelBg} — {p.hint}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Как да се показва (формат)">
+                      <select
+                        className="ov-field"
+                        value={(prefs.ads || DEFAULT_ADS).podcast.format}
+                        onChange={(e) =>
+                          patchAds({
+                            podcast: {
+                              ...(prefs.ads || DEFAULT_ADS).podcast,
+                              format: e.target.value as AdFormat,
+                              creatives: (
+                                prefs.ads || DEFAULT_ADS
+                              ).podcast.creatives.map((c, i) =>
+                                i === 0
+                                  ? { ...c, format: e.target.value as AdFormat }
+                                  : c
+                              ),
+                            },
+                          })
+                        }
+                      >
+                        {AD_FORMATS.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.labelBg}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <ToggleRow
+                      label="Countdown върху рекламата"
+                      checked={
+                        (prefs.ads || DEFAULT_ADS).podcast.showCountdown !==
+                        false
+                      }
+                      onChange={(v) =>
+                        patchAds({
+                          podcast: {
+                            ...(prefs.ads || DEFAULT_ADS).podcast,
+                            showCountdown: v,
+                          },
+                        })
+                      }
+                    />
+                    <ToggleRow
+                      label="Заглуши mic докато върви рекламата"
+                      checked={
+                        (prefs.ads || DEFAULT_ADS).podcast.duckMicDuringAd !==
+                        false
+                      }
+                      onChange={(v) =>
+                        patchAds({
+                          podcast: {
+                            ...(prefs.ads || DEFAULT_ADS).podcast,
+                            duckMicDuringAd: v,
+                          },
+                        })
+                      }
+                    />
+                    {((prefs.ads || DEFAULT_ADS).podcast.creatives[0]
+                      ? [(prefs.ads || DEFAULT_ADS).podcast.creatives[0]]
+                      : [
+                          {
+                            id: newCreativeId('pod'),
+                            title: '',
+                            body: '',
+                            mediaUrl: '',
+                            clickUrl: '',
+                            format: 'image' as AdFormat,
+                            durationSec: 15,
+                          },
+                        ]
+                    ).map((c) => (
+                      <div key={c.id} className="grid gap-2">
+                        <Field label="Заглавие">
+                          <input
+                            className="ov-field"
+                            value={c.title}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).podcast.creatives,
+                              ]
+                              if (!creatives[0]) creatives[0] = { ...c }
+                              creatives[0] = {
+                                ...creatives[0],
+                                title: e.target.value,
+                              }
+                              patchAds({
+                                podcast: {
+                                  ...(prefs.ads || DEFAULT_ADS).podcast,
+                                  creatives,
+                                },
+                              })
+                            }}
+                          />
+                        </Field>
+                        <Field label="Текст / read">
+                          <textarea
+                            className="ov-field min-h-[60px]"
+                            value={c.body}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).podcast.creatives,
+                              ]
+                              if (!creatives[0]) creatives[0] = { ...c }
+                              creatives[0] = {
+                                ...creatives[0],
+                                body: e.target.value,
+                              }
+                              patchAds({
+                                podcast: {
+                                  ...(prefs.ads || DEFAULT_ADS).podcast,
+                                  creatives,
+                                },
+                              })
+                            }}
+                          />
+                        </Field>
+                        <Field label="Медия / видео URL">
+                          <input
+                            className="ov-field"
+                            placeholder="https://…/ad.mp4 или .jpg"
+                            value={c.mediaUrl}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).podcast.creatives,
+                              ]
+                              if (!creatives[0]) creatives[0] = { ...c }
+                              creatives[0] = {
+                                ...creatives[0],
+                                mediaUrl: e.target.value,
+                              }
+                              patchAds({
+                                podcast: {
+                                  ...(prefs.ads || DEFAULT_ADS).podcast,
+                                  creatives,
+                                },
+                              })
+                            }}
+                          />
+                        </Field>
+                        <Field label="Линк при клик">
+                          <input
+                            className="ov-field"
+                            value={c.clickUrl}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).podcast.creatives,
+                              ]
+                              if (!creatives[0]) creatives[0] = { ...c }
+                              creatives[0] = {
+                                ...creatives[0],
+                                clickUrl: e.target.value,
+                              }
+                              patchAds({
+                                podcast: {
+                                  ...(prefs.ads || DEFAULT_ADS).podcast,
+                                  creatives,
+                                },
+                              })
+                            }}
+                          />
+                        </Field>
+                        <Field label={`Продължителност (${c.durationSec}s)`}>
+                          <input
+                            type="range"
+                            min={5}
+                            max={60}
+                            step={1}
+                            value={c.durationSec}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).podcast.creatives,
+                              ]
+                              if (!creatives[0]) creatives[0] = { ...c }
+                              creatives[0] = {
+                                ...creatives[0],
+                                durationSec: Number(e.target.value),
+                              }
+                              patchAds({
+                                podcast: {
+                                  ...(prefs.ads || DEFAULT_ADS).podcast,
+                                  creatives,
+                                },
+                              })
+                            }}
+                            className="w-full"
+                          />
+                        </Field>
+                      </div>
+                    ))}
+                  </>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-violet-500/25 bg-violet-500/5 p-3 space-y-3">
+                <p className="text-xs font-semibold text-violet-700 dark:text-violet-200">
+                  Режим на стаята
                 </p>
-              ) : null}
+                <div className="inline-flex rounded-full bg-black/5 p-0.5 dark:bg-white/10">
+                  <button
+                    type="button"
+                    onClick={() => patchPodcast({ sessionMode: 'podcast' })}
+                    className={`rounded-full px-3 py-1 text-[11px] font-bold ${
+                      prefs.podcast.sessionMode !== 'streaming'
+                        ? 'bg-rose-500 text-white'
+                        : 'text-[var(--muted)]'
+                    }`}
+                  >
+                    Podcast room
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => patchPodcast({ sessionMode: 'streaming' })}
+                    className={`rounded-full px-3 py-1 text-[11px] font-bold ${
+                      prefs.podcast.sessionMode === 'streaming'
+                        ? 'bg-violet-500 text-white'
+                        : 'text-[var(--muted)]'
+                    }`}
+                  >
+                    Streaming
+                  </button>
+                </div>
+
+                <Field label="Сцена (Twitch / YT / Kick / Kick collab…)">
+                  <select
+                    className="ov-field"
+                    value={prefs.podcast.streaming.scene}
+                    onChange={(e) => {
+                      const scene = e.target.value as StreamSceneId
+                      patchStreaming({
+                        scene,
+                        contentHint: contentHintForScene(scene),
+                      })
+                    }}
+                  >
+                    {STREAM_SCENES.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.labelBg} — {s.hint}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Host PiP ъгъл (cutout върху сериал/филм/игра)">
+                  <select
+                    className="ov-field"
+                    value={prefs.podcast.streaming.pipCorner}
+                    onChange={(e) =>
+                      patchStreaming({
+                        pipCorner: e.target.value as PipCorner,
+                      })
+                    }
+                  >
+                    {PIP_CORNERS.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Стил на интерактивни субтитри">
+                  <select
+                    className="ov-field"
+                    value={prefs.podcast.streaming.captionStyle}
+                    onChange={(e) =>
+                      patchStreaming({
+                        captionStyle: e.target.value as CaptionStyleId,
+                      })
+                    }
+                  >
+                    {CAPTION_STYLES.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.labelBg}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Чат режим">
+                  <select
+                    className="ov-field"
+                    value={prefs.podcast.streaming.chatMode}
+                    onChange={(e) =>
+                      patchStreaming({
+                        chatMode: e.target.value as StreamChatMode,
+                      })
+                    }
+                  >
+                    {CHAT_MODES.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Latency">
+                  <select
+                    className="ov-field"
+                    value={prefs.podcast.streaming.latencyMode || 'low'}
+                    onChange={(e) =>
+                      patchStreaming({
+                        latencyMode: e.target.value as LatencyMode,
+                      })
+                    }
+                  >
+                    {LATENCY_MODES.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.labelBg} — {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    Бързи пакети
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        {
+                          id: 'chat',
+                          label: 'Just Chatting',
+                          patch: {
+                            scene: 'just_chatting' as StreamSceneId,
+                            contentHint: 'screenshare' as const,
+                            interactiveCaptions: true,
+                            reactionWaves: true,
+                          },
+                        },
+                        {
+                          id: 'game',
+                          label: 'Gaming',
+                          patch: {
+                            scene: 'gaming' as StreamSceneId,
+                            contentHint: 'game' as const,
+                            contentAudioDuck: true,
+                            streamHealthMeter: true,
+                          },
+                        },
+                        {
+                          id: 'watch',
+                          label: 'Watch party',
+                          patch: {
+                            scene: 'watch_party' as StreamSceneId,
+                            contentHint: 'series' as const,
+                            watchPartySync: true,
+                            dualLangCaptions: true,
+                            viewerLangPicker: true,
+                          },
+                        },
+                        {
+                          id: 'pro',
+                          label: 'Pro live',
+                          patch: {
+                            alertsFollows: true,
+                            alertsSubs: true,
+                            hypeTrain: true,
+                            polls: true,
+                            predictions: true,
+                            channelPoints: true,
+                            autoClips916: true,
+                            aiMoments: true,
+                          },
+                        },
+                      ] as const
+                    ).map((pack) => (
+                      <button
+                        key={pack.id}
+                        type="button"
+                        onClick={() =>
+                          patchStreaming({
+                            ...pack.patch,
+                            contentHint:
+                              'contentHint' in pack.patch
+                                ? pack.patch.contentHint
+                                : contentHintForScene(
+                                    ('scene' in pack.patch
+                                      ? pack.patch.scene
+                                      : prefs.podcast.streaming.scene) as StreamSceneId
+                                  ),
+                          })
+                        }
+                        className="rounded-full bg-[var(--accent)]/20 px-3 py-1 text-[10px] font-bold text-[var(--fg)] ring-1 ring-[var(--accent)]/30"
+                      >
+                        {pack.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <details className="rounded-xl border border-[var(--panel-border)] bg-[var(--chip)]/20 open:bg-[var(--chip)]/35">
+                  <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-semibold">
+                    Разширени опции ({STREAMING_OPTION_GROUPS.reduce((n, g) => n + g.options.length, 0)}) — по групи
+                  </summary>
+                  <div className="space-y-2 border-t border-[var(--panel-border)] p-2.5">
+                    {STREAMING_OPTION_GROUPS.map((group) => (
+                      <details
+                        key={group.id}
+                        className="rounded-lg border border-[var(--panel-border)] bg-black/5"
+                      >
+                        <summary className="cursor-pointer px-2.5 py-1.5 text-[11px] font-bold">
+                          {group.titleBg}
+                          <span className="ml-1 font-normal text-[var(--muted)]">
+                            · {group.options.length}
+                          </span>
+                        </summary>
+                        <div className="space-y-1 border-t border-[var(--panel-border)] p-2">
+                          <p className="text-[9px] text-[var(--muted)]">
+                            {group.inspiredBy}
+                          </p>
+                          {group.options.map((opt) => (
+                            <ToggleRow
+                              key={opt.key}
+                              label={opt.labelBg}
+                              checked={Boolean(
+                                prefs.podcast.streaming[opt.key]
+                              )}
+                              onChange={(v) =>
+                                patchStreaming({ [opt.key]: v })
+                              }
+                            />
+                          ))}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </details>
+              </div>
+
               <Field label="Show title">
                 <input
                   className="ov-field"
@@ -1113,12 +1955,20 @@ export default function SettingsPanel({
             <div className="space-y-3">
               <SectionTitle icon={Radio} title="Свързване с платформи" />
               <p className="text-xs text-[var(--muted)]">
-                YouTube, TikTok, Facebook, Instagram, Twitch, LinkedIn, X, Kick,
-                Discord, Spotify, Apple Podcasts, Rumble — stream keys + auto publish.
+                Live (YouTube, Twitch…) + гледане (Max/HBO, Netflix, Disney+,
+                PlayStation, Xbox, Smart TV) — вържи акаунт и сподели екрана в
+                Streaming.
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {(
-                  ['all', 'video', 'social', 'audio', 'community'] as const
+                  [
+                    'all',
+                    'video',
+                    'social',
+                    'audio',
+                    'community',
+                    'watch',
+                  ] as const
                 ).map((filter) => (
                   <button
                     key={filter}
@@ -1130,12 +1980,18 @@ export default function SettingsPanel({
                         : 'bg-[var(--chip)] text-[var(--muted)]'
                     }`}
                   >
-                    {filter}
+                    {filter === 'watch' ? 'TV / игри' : filter}
                   </button>
                 ))}
               </div>
               {platforms.map((platform) => {
-                const conn = prefs.podcast.platforms[platform.id]
+                const conn = prefs.podcast.platforms[platform.id] || {
+                  connected: false,
+                  account: '',
+                  streamKey: '',
+                  rtmpUrl: '',
+                  autoPublish: false,
+                }
                 return (
                   <div
                     key={platform.id}
@@ -1148,24 +2004,40 @@ export default function SettingsPanel({
                           {platform.hint}
                         </p>
                       </div>
-                      <label className="flex items-center gap-2 text-xs">
-                        <span>{conn.connected ? 'Connected' : 'Off'}</span>
-                        <input
-                          type="checkbox"
-                          checked={conn.connected}
-                          onChange={(e) =>
-                            patchPlatform(platform.id, {
-                              connected: e.target.checked,
-                            })
-                          }
-                        />
-                      </label>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {platform.connectUrl ? (
+                          <a
+                            href={platform.connectUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full bg-[var(--panel)] px-2.5 py-1 text-[10px] font-semibold text-[var(--accent)] ring-1 ring-[var(--panel-border)]"
+                          >
+                            Отвори ↗
+                          </a>
+                        ) : null}
+                        <label className="flex items-center gap-2 text-xs">
+                          <span>{conn.connected ? 'On' : 'Off'}</span>
+                          <input
+                            type="checkbox"
+                            checked={conn.connected}
+                            onChange={(e) =>
+                              patchPlatform(platform.id, {
+                                connected: e.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
                     </div>
                     {conn.connected ? (
                       <div className="mt-3 grid gap-2">
                         <input
                           className="ov-field"
-                          placeholder="Account / channel"
+                          placeholder={
+                            platform.category === 'watch'
+                              ? 'Имейл / gamertag / абонамент'
+                              : 'Account / channel'
+                          }
                           value={conn.account}
                           onChange={(e) =>
                             patchPlatform(platform.id, {
@@ -1173,39 +2045,220 @@ export default function SettingsPanel({
                             })
                           }
                         />
-                        <input
-                          className="ov-field"
-                          placeholder="RTMP URL"
-                          value={conn.rtmpUrl}
-                          onChange={(e) =>
-                            patchPlatform(platform.id, {
-                              rtmpUrl: e.target.value,
-                            })
-                          }
-                        />
-                        <input
-                          className="ov-field"
-                          placeholder="Stream key"
-                          type="password"
-                          value={conn.streamKey}
-                          onChange={(e) =>
-                            patchPlatform(platform.id, {
-                              streamKey: e.target.value,
-                            })
-                          }
-                        />
-                        <ToggleRow
-                          label="Auto-publish when LIVE"
-                          checked={conn.autoPublish}
-                          onChange={(v) =>
-                            patchPlatform(platform.id, { autoPublish: v })
-                          }
-                        />
+                        {platform.category !== 'watch' ? (
+                          <>
+                            <input
+                              className="ov-field"
+                              placeholder="RTMP URL"
+                              value={conn.rtmpUrl}
+                              onChange={(e) =>
+                                patchPlatform(platform.id, {
+                                  rtmpUrl: e.target.value,
+                                })
+                              }
+                            />
+                            <input
+                              className="ov-field"
+                              placeholder="Stream key"
+                              type="password"
+                              value={conn.streamKey}
+                              onChange={(e) =>
+                                patchPlatform(platform.id, {
+                                  streamKey: e.target.value,
+                                })
+                              }
+                            />
+                            <ToggleRow
+                              label="Auto-publish when LIVE"
+                              checked={conn.autoPublish}
+                              onChange={(v) =>
+                                patchPlatform(platform.id, {
+                                  autoPublish: v,
+                                })
+                              }
+                            />
+                          </>
+                        ) : (
+                          <p className="text-[11px] text-[var(--muted)]">
+                            В Streaming режим натисни Share — съдържанието отива
+                            fullscreen, ти си cutout.
+                          </p>
+                        )}
                       </div>
                     ) : null}
                   </div>
                 )
               })}
+
+              <SectionTitle icon={Radio} title="Платено съдържание" />
+              <p className="text-xs text-[var(--muted)]">
+                Като YouTube Memberships / Super Thanks / Twitch Subs / PPV —
+                настрой модела; плащанията се връзват през Stripe в Checkout.
+              </p>
+              <ToggleRow
+                label="Включи платено съдържание"
+                checked={prefs.podcast.streaming.paidContent?.enabled || false}
+                onChange={(v) =>
+                  patchStreaming({
+                    paidContent: {
+                      ...prefs.podcast.streaming.paidContent,
+                      enabled: v,
+                    },
+                  })
+                }
+              />
+              {prefs.podcast.streaming.paidContent?.enabled ? (
+                <div className="space-y-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--chip)] p-3">
+                  <Field label="Модел">
+                    <select
+                      className="ov-field"
+                      value={prefs.podcast.streaming.paidContent.model}
+                      onChange={(e) =>
+                        patchStreaming({
+                          paidContent: {
+                            ...prefs.podcast.streaming.paidContent,
+                            model: e.target
+                              .value as typeof prefs.podcast.streaming.paidContent.model,
+                          },
+                        })
+                      }
+                    >
+                      <option value="free">Безплатно</option>
+                      <option value="one_time">Еднократно</option>
+                      <option value="fans">Super Thanks / tips</option>
+                      <option value="subscription">Абонамент</option>
+                      <option value="ppv">Pay-per-view</option>
+                    </select>
+                  </Field>
+                  <Field label="Цена (EUR)">
+                    <input
+                      className="ov-field"
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={prefs.podcast.streaming.paidContent.priceEur}
+                      onChange={(e) =>
+                        patchStreaming({
+                          paidContent: {
+                            ...prefs.podcast.streaming.paidContent,
+                            priceEur: Number(e.target.value) || 0,
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Заглавие">
+                    <input
+                      className="ov-field"
+                      value={prefs.podcast.streaming.paidContent.title}
+                      onChange={(e) =>
+                        patchStreaming({
+                          paidContent: {
+                            ...prefs.podcast.streaming.paidContent,
+                            title: e.target.value,
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+                  <ToggleRow
+                    label="Super Thanks реакции"
+                    checked={prefs.podcast.streaming.paidContent.superThanks}
+                    onChange={(v) =>
+                      patchStreaming({
+                        paidContent: {
+                          ...prefs.podcast.streaming.paidContent,
+                          superThanks: v,
+                        },
+                      })
+                    }
+                  />
+                  <ToggleRow
+                    label="Чат само за членове"
+                    checked={
+                      prefs.podcast.streaming.paidContent.membersOnlyChat
+                    }
+                    onChange={(v) =>
+                      patchStreaming({
+                        paidContent: {
+                          ...prefs.podcast.streaming.paidContent,
+                          membersOnlyChat: v,
+                        },
+                      })
+                    }
+                  />
+                  <ToggleRow
+                    label="Възрастова защита (18+)"
+                    checked={prefs.podcast.streaming.paidContent.ageGate}
+                    onChange={(v) =>
+                      patchStreaming({
+                        paidContent: {
+                          ...prefs.podcast.streaming.paidContent,
+                          ageGate: v,
+                        },
+                      })
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="ov-btn-primary w-full !py-2 text-xs"
+                    onClick={() => {
+                      const pc = prefs.podcast.streaming.paidContent
+                      void (async () => {
+                        try {
+                          const res = await fetch('/api/stripe/paid-content', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({
+                              model: pc.model,
+                              title: pc.title,
+                              description: pc.description,
+                              priceEur: pc.priceEur,
+                              currency: pc.currency,
+                              contentId: `show_${prefs.podcast.showTitle || 'live'}`,
+                              successPath: '/dashboard?paid=success',
+                            }),
+                          })
+                          const data = (await res.json()) as {
+                            url?: string
+                            demo?: boolean
+                            unlocked?: boolean
+                            contentId?: string
+                            error?: string
+                            message?: string
+                          }
+                          if (data.url) {
+                            window.location.href = data.url
+                            return
+                          }
+                          if (data.demo && data.unlocked && data.contentId) {
+                            updatePrefs((current) => ({
+                              paidUnlocks: [
+                                data.contentId!,
+                                ...(current.paidUnlocks || []).filter(
+                                  (id) => id !== data.contentId
+                                ),
+                              ],
+                            }))
+                            window.alert(
+                              data.message ||
+                                'Демо unlock — съдържанието е отключено.'
+                            )
+                            return
+                          }
+                          window.alert(data.error || 'Checkout не успя')
+                        } catch {
+                          window.alert('Няма връзка със сървъра')
+                        }
+                      })()
+                    }}
+                  >
+                    Плати / отключи чрез Stripe · €
+                    {prefs.podcast.streaming.paidContent.priceEur.toFixed(2)}
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -1294,13 +2347,28 @@ export default function SettingsPanel({
           {tab === 'voice' && (
             <div className="space-y-3">
               <SectionTitle icon={Sparkles} title="Глас и превод" />
-              <Field label="Език за превод / глас">
+              <p className="text-xs text-[var(--muted)]">
+                Избраният глас отива при отсрещния — той те чува с твоя глас, ти
+                чуваш с неговия. Избери глас на езика, на който те слушат.
+              </p>
+              <Field label="Език на гласа (езикът на отсрещния)">
                 <select
                   className="ov-field"
                   value={prefs.voice.targetLanguage}
-                  onChange={(e) =>
-                    patchVoice({ targetLanguage: e.target.value, voiceURI: '' })
-                  }
+                  onChange={(e) => {
+                    const targetLanguage = e.target.value
+                    const presetId = (prefs.voice.voicePreset ||
+                      '') as VoicePresetId | ''
+                    const resolved = presetId
+                      ? resolveVoicePreset(presetId, targetLanguage, voices)
+                      : null
+                    patchVoice({
+                      targetLanguage,
+                      voiceURI: resolved?.voiceURI || '',
+                      pitch: resolved?.pitch ?? prefs.voice.pitch,
+                      rate: resolved?.rate ?? prefs.voice.rate,
+                    })
+                  }}
                 >
                   {APP_LANGUAGES.map((lang) => (
                     <option key={lang.code} value={lang.code}>
@@ -1309,18 +2377,71 @@ export default function SettingsPanel({
                   ))}
                 </select>
               </Field>
-              <Field label="Избор на глас">
+              <Field
+                label={`Твой глас — 3 женски / 3 мъжки / 2 детски (${
+                  APP_LANGUAGES.find((l) => l.code === speakAsLangCode)
+                    ?.nativeName || speakAsLangCode
+                })`}
+              >
                 <select
                   className="ov-field"
-                  value={prefs.voice.voiceURI}
-                  onChange={(e) => patchVoice({ voiceURI: e.target.value })}
+                  value={prefs.voice.voicePreset || ''}
+                  onChange={(e) => {
+                    const presetId = e.target.value as VoicePresetId | ''
+                    const resolved = presetId
+                      ? resolveVoicePreset(
+                          presetId,
+                          speakAsLangCode,
+                          voices.length ? voices : filteredVoices
+                        )
+                      : null
+                    patchVoice({
+                      voicePreset: presetId,
+                      voiceURI: resolved?.voiceURI || '',
+                      pitch: resolved?.pitch ?? 1,
+                      rate: resolved?.rate ?? 1,
+                    })
+                    unlockSpeechSynthesis()
+                    const sampleLang =
+                      APP_LANGUAGES.find((l) => l.code === speakAsLangCode)
+                        ?.speechCode || 'en-US'
+                    const sample =
+                      speakAsLangCode === 'bg'
+                        ? 'Здравей, това е избраният глас.'
+                        : 'Hello, this is the selected voice.'
+                    if (presetId) {
+                      speakVoicePresetSample(presetId, sample, sampleLang)
+                    }
+                  }}
                 >
-                  <option value="">Системен</option>
-                  {filteredVoices.map((voice) => (
-                    <option key={voice.voiceURI} value={voice.voiceURI}>
-                      {voice.name} · {voice.lang}
-                    </option>
-                  ))}
+                  <option value="">Авто (системен)</option>
+                  <optgroup label="Женски">
+                    {VOICE_PRESETS.filter((p) => p.gender === 'female').map(
+                      (p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.labelBg}
+                        </option>
+                      )
+                    )}
+                  </optgroup>
+                  <optgroup label="Мъжки">
+                    {VOICE_PRESETS.filter((p) => p.gender === 'male').map(
+                      (p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.labelBg}
+                        </option>
+                      )
+                    )}
+                  </optgroup>
+                  <optgroup label="Детски">
+                    {VOICE_PRESETS.filter((p) => p.gender === 'child').map(
+                      (p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.labelBg}
+                        </option>
+                      )
+                    )}
+                  </optgroup>
                 </select>
               </Field>
               <Field label={`Скорост (${prefs.voice.rate.toFixed(1)})`}>
@@ -1330,7 +2451,12 @@ export default function SettingsPanel({
                   max={1.4}
                   step={0.05}
                   value={prefs.voice.rate}
-                  onChange={(e) => patchVoice({ rate: Number(e.target.value) })}
+                  onChange={(e) =>
+                    patchVoice({
+                      rate: Number(e.target.value),
+                      voicePreset: prefs.voice.voicePreset,
+                    })
+                  }
                   className="w-full"
                 />
               </Field>
@@ -1338,11 +2464,14 @@ export default function SettingsPanel({
                 <input
                   type="range"
                   min={0.7}
-                  max={1.4}
+                  max={1.6}
                   step={0.05}
                   value={prefs.voice.pitch}
                   onChange={(e) =>
-                    patchVoice({ pitch: Number(e.target.value) })
+                    patchVoice({
+                      pitch: Number(e.target.value),
+                      voicePreset: prefs.voice.voicePreset,
+                    })
                   }
                   className="w-full"
                 />
@@ -1374,43 +2503,189 @@ export default function SettingsPanel({
             <div className="space-y-3">
               <SectionTitle icon={Music2} title="Ambient музика" />
               <p className="text-xs text-[var(--muted)]">
-                План {PLANS[plan].label}: {musicTracks.length} писти
+                Spotify плейлист/трак или вградена библиотека · план{' '}
+                {PLANS[plan].label}
               </p>
+
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    ['spotify', 'Spotify'],
+                    ['library', 'Вградена библиотека'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() =>
+                      patchMusic({
+                        source: id,
+                        enabled: true,
+                      })
+                    }
+                    className={`rounded-full px-3 py-1.5 text-[11px] font-semibold ${
+                      (prefs.music.source || 'library') === id
+                        ? 'bg-[#1DB954] text-black'
+                        : 'bg-[var(--chip)] text-[var(--muted)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               <ToggleRow
                 label="Пусни музика"
                 checked={prefs.music.enabled}
                 onChange={(checked) => patchMusic({ enabled: checked })}
               />
-              <ToggleRow
-                label="Duck volume докато говориш"
-                checked={prefs.music.duckDuringSpeech}
-                onChange={(checked) =>
-                  patchMusic({ duckDuringSpeech: checked })
-                }
-              />
-              <Field label={`Сила (${Math.round(prefs.music.volume * 100)}%)`}>
-                <input
-                  type="range"
-                  min={0.05}
-                  max={0.8}
-                  step={0.01}
-                  value={prefs.music.volume}
-                  onChange={(e) =>
-                    patchMusic({ volume: Number(e.target.value) })
-                  }
-                  className="w-full"
-                />
-              </Field>
-              {musicTracks.map((track) => (
-                <MusicRow
-                  key={track.id}
-                  track={track}
-                  active={prefs.music.trackId === track.id}
-                  onSelect={() =>
-                    patchMusic({ trackId: track.id, enabled: true })
-                  }
-                />
-              ))}
+
+              {(prefs.music.source || 'library') === 'spotify' ? (
+                <div className="space-y-3 rounded-2xl border border-[#1DB954]/25 bg-[#1DB954]/5 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[#1DB954]">
+                      Spotify
+                    </p>
+                    <a
+                      href={spotifySearchUrl('lofi chill')}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] font-medium text-[#1DB954] underline-offset-2 hover:underline"
+                    >
+                      Търси в Spotify ↗
+                    </a>
+                  </div>
+                  <Field label="Постави линк към track / playlist / album">
+                    <input
+                      className="ov-field text-xs"
+                      placeholder="https://open.spotify.com/playlist/…"
+                      value={prefs.music.spotifyUrl || ''}
+                      onChange={(e) =>
+                        patchMusic({
+                          spotifyUrl: e.target.value,
+                          source: 'spotify',
+                          enabled: true,
+                        })
+                      }
+                    />
+                  </Field>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SPOTIFY_QUICK_PICKS.map((pick) => {
+                      const active =
+                        prefs.music.spotifyUrl === pick.url ||
+                        parseSpotifyUrl(prefs.music.spotifyUrl || '')?.openUrl ===
+                          pick.url
+                      return (
+                        <button
+                          key={pick.url}
+                          type="button"
+                          title={pick.hint}
+                          onClick={() =>
+                            patchMusic({
+                              spotifyUrl: pick.url,
+                              source: 'spotify',
+                              enabled: true,
+                            })
+                          }
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                            active
+                              ? 'bg-[#1DB954] text-black'
+                              : 'bg-black/20 text-[var(--foreground)] ring-1 ring-[#1DB954]/30'
+                          }`}
+                        >
+                          {pick.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {(() => {
+                    const ref = parseSpotifyUrl(prefs.music.spotifyUrl || '')
+                    if (!prefs.music.enabled) {
+                      return (
+                        <p className="text-[11px] text-[var(--muted)]">
+                          Включи „Пусни музика“, за да се зареди плеърът.
+                        </p>
+                      )
+                    }
+                    if (!ref) {
+                      return (
+                        <p className="text-[11px] text-amber-500">
+                          Невалиден Spotify линк — копирай от приложението Share
+                          → Copy link.
+                        </p>
+                      )
+                    }
+                    return (
+                      <div className="overflow-hidden rounded-xl border border-[#1DB954]/20">
+                        <iframe
+                          title="Spotify player"
+                          src={ref.embedUrl}
+                          width="100%"
+                          height="152"
+                          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                          loading="lazy"
+                          className="block w-full bg-black"
+                        />
+                        <a
+                          href={ref.openUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block bg-black/40 px-3 py-1.5 text-center text-[10px] text-[#1DB954]"
+                        >
+                          Отвори в Spotify ↗
+                        </a>
+                      </div>
+                    )
+                  })()}
+                  <p className="text-[10px] leading-relaxed text-[var(--muted)]">
+                    Spotify се пуска в embed (трябва логнат Spotify акаунт в
+                    браузъра). За правата на авторите — ползвай личен Premium /
+                    лицензиран плейлист.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <ToggleRow
+                    label="Duck volume докато говориш"
+                    checked={prefs.music.duckDuringSpeech}
+                    onChange={(checked) =>
+                      patchMusic({ duckDuringSpeech: checked })
+                    }
+                  />
+                  <Field
+                    label={`Сила (${Math.round(prefs.music.volume * 100)}%)`}
+                  >
+                    <input
+                      type="range"
+                      min={0.05}
+                      max={0.8}
+                      step={0.01}
+                      value={prefs.music.volume}
+                      onChange={(e) =>
+                        patchMusic({ volume: Number(e.target.value) })
+                      }
+                      className="w-full"
+                    />
+                  </Field>
+                  <p className="text-xs text-[var(--muted)]">
+                    {musicTracks.length} вградени писти
+                  </p>
+                  {musicTracks.map((track) => (
+                    <MusicRow
+                      key={track.id}
+                      track={track}
+                      active={prefs.music.trackId === track.id}
+                      onSelect={() =>
+                        patchMusic({
+                          trackId: track.id,
+                          source: 'library',
+                          enabled: true,
+                        })
+                      }
+                    />
+                  ))}
+                </>
+              )}
             </div>
           )}
 
@@ -1548,11 +2823,15 @@ export default function SettingsPanel({
                   patchExperience({ smartReplies: checked })
                 }
               />
-              <ToggleRow
-                label="Call recap"
-                checked={prefs.experience.callRecap}
-                onChange={(checked) => patchExperience({ callRecap: checked })}
-              />
+              {plan === 'business' ? (
+                <ToggleRow
+                  label="Call recap / Business Intel"
+                  checked={prefs.experience.callRecap}
+                  onChange={(checked) =>
+                    patchExperience({ callRecap: checked })
+                  }
+                />
+              ) : null}
               <ToggleRow
                 label="Rich presence"
                 checked={prefs.experience.showPresence}
@@ -1560,6 +2839,506 @@ export default function SettingsPanel({
                   patchExperience({ showPresence: checked })
                 }
               />
+              {plan === 'podcast' ? (
+                <ToggleRow
+                  label="AI помощник за подкаст (трендове / въпроси)"
+                  checked={prefs.experience.aiPodcastAssistant !== false}
+                  onChange={(checked) =>
+                    patchExperience({ aiPodcastAssistant: checked })
+                  }
+                />
+              ) : null}
+              {plan === 'business' ? (
+                <>
+                  <ToggleRow
+                    label="AI coach в бизнес разговор (само Business)"
+                    checked={prefs.experience.aiBusinessCoach !== false}
+                    onChange={(checked) =>
+                      patchExperience({ aiBusinessCoach: checked })
+                    }
+                  />
+                  <ToggleRow
+                    label="Културен съветник по държава (Business)"
+                    checked={prefs.experience.aiCultureAdvisor !== false}
+                    onChange={(checked) =>
+                      patchExperience({ aiCultureAdvisor: checked })
+                    }
+                  />
+                </>
+              ) : null}
+              {plan === 'free' ? (
+                <ToggleRow
+                  label="Мини игри в чата (Normal)"
+                  checked={prefs.experience.miniGames !== false}
+                  onChange={(checked) =>
+                    patchExperience({ miniGames: checked })
+                  }
+                />
+              ) : null}
+              <ToggleRow
+                label="Запис на разговори (всички планове)"
+                checked={prefs.chat.allowRecording !== false}
+                onChange={(checked) =>
+                  patchChat({ allowRecording: checked })
+                }
+              />
+
+              {plan === 'business' ? (
+              <div className="rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 to-emerald-500/5 p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-bold text-amber-800 dark:text-amber-100">
+                    Business стая — предварителни настройки
+                  </p>
+                  <p className="text-[10px] text-[var(--muted)]">
+                    От бележки до сключване на договор · важат за всяка business
+                    сесия
+                  </p>
+                </div>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {BUSINESS_ROOM_PRESETS.map((preset) => {
+                    const active =
+                      (prefs.experience.businessRoom?.presetId ||
+                        'deal_close') === preset.id
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() =>
+                          patchExperience({
+                            businessRoom: {
+                              ...(prefs.experience.businessRoom ||
+                                DEFAULT_BUSINESS_ROOM),
+                              presetId: preset.id,
+                              defaultIntelOptions:
+                                preset.id === 'custom'
+                                  ? prefs.experience.businessRoom
+                                      ?.defaultIntelOptions ||
+                                    DEFAULT_BUSINESS_ROOM.defaultIntelOptions
+                                  : [...preset.options],
+                            },
+                          })
+                        }
+                        className={`rounded-xl border px-3 py-2 text-left transition ${
+                          active
+                            ? 'border-amber-400 bg-amber-500/20 shadow'
+                            : 'border-[var(--panel-border)] bg-black/5 hover:bg-black/10'
+                        }`}
+                      >
+                        <p className="text-[11px] font-bold">{preset.labelBg}</p>
+                        <p className="text-[9px] text-[var(--muted)]">
+                          {preset.hint}
+                        </p>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {BUSINESS_INTEL_OPTIONS.map((opt) => {
+                    const selected = (
+                      prefs.experience.businessRoom?.defaultIntelOptions ||
+                      DEFAULT_BUSINESS_ROOM.defaultIntelOptions
+                    ).includes(opt.id)
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          const cur =
+                            prefs.experience.businessRoom
+                              ?.defaultIntelOptions ||
+                            DEFAULT_BUSINESS_ROOM.defaultIntelOptions
+                          const next = selected
+                            ? cur.filter((id) => id !== opt.id)
+                            : [...cur, opt.id]
+                          patchExperience({
+                            businessRoom: {
+                              ...(prefs.experience.businessRoom ||
+                                DEFAULT_BUSINESS_ROOM),
+                              presetId: 'custom',
+                              defaultIntelOptions: next.length
+                                ? next
+                                : ['summary'],
+                            },
+                          })
+                        }}
+                        className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                          selected
+                            ? 'bg-[var(--accent)] text-black'
+                            : 'bg-black/15 text-[var(--muted)]'
+                        }`}
+                      >
+                        {opt.labelBg}
+                      </button>
+                    )
+                  })}
+                </div>
+                <Field label="Договорът се съставя от">
+                  <select
+                    className="ov-field"
+                    value={
+                      prefs.experience.businessRoom?.contractComposeFrom ||
+                      'notes_and_transcript'
+                    }
+                    onChange={(e) =>
+                      patchExperience({
+                        businessRoom: {
+                          ...(prefs.experience.businessRoom ||
+                            DEFAULT_BUSINESS_ROOM),
+                          contractComposeFrom: e.target
+                            .value as ContractComposeFrom,
+                        },
+                      })
+                    }
+                  >
+                    {CONTRACT_COMPOSE_FROM.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.labelBg} — {c.hint}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <ToggleRow
+                  label="Автоматично отвори подпис при писмен договор"
+                  checked={Boolean(
+                    prefs.experience.businessRoom?.autoOpenSigner
+                  )}
+                  onChange={(v) =>
+                    patchExperience({
+                      businessRoom: {
+                        ...(prefs.experience.businessRoom ||
+                          DEFAULT_BUSINESS_ROOM),
+                        autoOpenSigner: v,
+                      },
+                    })
+                  }
+                />
+                <ToggleRow
+                  label="Запази Intel в CRM / memories"
+                  checked={Boolean(prefs.experience.businessRoom?.saveToCrm)}
+                  onChange={(v) =>
+                    patchExperience({
+                      businessRoom: {
+                        ...(prefs.experience.businessRoom ||
+                          DEFAULT_BUSINESS_ROOM),
+                        saveToCrm: v,
+                      },
+                    })
+                  }
+                />
+                <ToggleRow
+                  label="Изисквай consent преди виртуален подпис"
+                  checked={
+                    prefs.experience.businessRoom?.requireSignConsent !== false
+                  }
+                  onChange={(v) =>
+                    patchExperience({
+                      businessRoom: {
+                        ...(prefs.experience.businessRoom ||
+                          DEFAULT_BUSINESS_ROOM),
+                        requireSignConsent: v,
+                      },
+                    })
+                  }
+                />
+                <ToggleRow
+                  label="Запечатай договора след първия подпис (SHA-256)"
+                  checked={
+                    prefs.experience.businessRoom?.sealOnFirstSign !== false
+                  }
+                  onChange={(v) =>
+                    patchExperience({
+                      businessRoom: {
+                        ...(prefs.experience.businessRoom ||
+                          DEFAULT_BUSINESS_ROOM),
+                        sealOnFirstSign: v,
+                      },
+                    })
+                  }
+                />
+                <ToggleRow
+                  label="Законен подпис (eIDAS / ESIGN) — Yousign/DocuSign"
+                  checked={
+                    prefs.experience.businessRoom?.signatureMode !==
+                    'acknowledgment'
+                  }
+                  onChange={(v) =>
+                    patchExperience({
+                      businessRoom: {
+                        ...(prefs.experience.businessRoom ||
+                          DEFAULT_BUSINESS_ROOM),
+                        signatureMode: v
+                          ? 'legal_binding'
+                          : 'acknowledgment',
+                      },
+                    })
+                  }
+                />
+                <Field label="Предпочитан законен провайдер">
+                  <select
+                    className="ov-field"
+                    value={
+                      prefs.experience.businessRoom?.preferredLegalProvider ||
+                      'yousign'
+                    }
+                    onChange={(e) =>
+                      patchExperience({
+                        businessRoom: {
+                          ...(prefs.experience.businessRoom ||
+                            DEFAULT_BUSINESS_ROOM),
+                          preferredLegalProvider: e.target.value as
+                            | 'yousign'
+                            | 'docusign'
+                            | 'adobe_sign'
+                            | 'dropbox_sign',
+                        },
+                      })
+                    }
+                  >
+                    <option value="yousign">Yousign (EU eIDAS)</option>
+                    <option value="docusign">DocuSign (ESIGN)</option>
+                    <option value="adobe_sign">Adobe Sign</option>
+                    <option value="dropbox_sign">Dropbox Sign</option>
+                  </select>
+                </Field>
+              </div>
+              ) : null}
+
+              {plan === 'business' ? (
+              <div className="rounded-2xl border border-rose-500/25 bg-rose-500/5 p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-bold text-rose-800 dark:text-rose-100">
+                    Реклами при почивка (Business · по желание)
+                  </p>
+                  <p className="text-[10px] text-[var(--muted)]">
+                    Показват се само след тишина в разговора — не прекъсват
+                    говоренето.
+                  </p>
+                </div>
+                <ToggleRow
+                  label="Включи реклами при почивка"
+                  checked={Boolean(
+                    (prefs.ads || DEFAULT_ADS).business.enabled
+                  )}
+                  onChange={(v) =>
+                    patchAds({
+                      business: {
+                        ...(prefs.ads || DEFAULT_ADS).business,
+                        enabled: v,
+                      },
+                    })
+                  }
+                />
+                {(prefs.ads || DEFAULT_ADS).business.enabled ? (
+                  <>
+                    <Field
+                      label={`Тишина за почивка (${(prefs.ads || DEFAULT_ADS).business.breakSilenceSec}s)`}
+                    >
+                      <input
+                        type="range"
+                        min={5}
+                        max={45}
+                        step={1}
+                        value={(prefs.ads || DEFAULT_ADS).business.breakSilenceSec}
+                        onChange={(e) =>
+                          patchAds({
+                            business: {
+                              ...(prefs.ads || DEFAULT_ADS).business,
+                              breakSilenceSec: Number(e.target.value),
+                            },
+                          })
+                        }
+                        className="w-full"
+                      />
+                    </Field>
+                    <Field label="Къде да се показва">
+                      <select
+                        className="ov-field"
+                        value={(prefs.ads || DEFAULT_ADS).business.placement}
+                        onChange={(e) =>
+                          patchAds({
+                            business: {
+                              ...(prefs.ads || DEFAULT_ADS).business,
+                              placement: e.target.value as AdPlacement,
+                            },
+                          })
+                        }
+                      >
+                        {AD_PLACEMENTS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.labelBg} — {p.hint}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Макс. реклами на обаждане">
+                      <input
+                        className="ov-field"
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={(prefs.ads || DEFAULT_ADS).business.maxAdsPerCall}
+                        onChange={(e) =>
+                          patchAds({
+                            business: {
+                              ...(prefs.ads || DEFAULT_ADS).business,
+                              maxAdsPerCall: Number(e.target.value) || 0,
+                            },
+                          })
+                        }
+                      />
+                    </Field>
+                    {((prefs.ads || DEFAULT_ADS).business.creatives[0]
+                      ? [(prefs.ads || DEFAULT_ADS).business.creatives[0]]
+                      : []
+                    ).map((c) => (
+                      <div key={c.id} className="grid gap-2">
+                        <Field label="Заглавие на спонсора">
+                          <input
+                            className="ov-field"
+                            value={c.title}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).business.creatives,
+                              ]
+                              creatives[0] = { ...c, title: e.target.value }
+                              patchAds({
+                                business: {
+                                  ...(prefs.ads || DEFAULT_ADS).business,
+                                  creatives,
+                                },
+                              })
+                            }}
+                          />
+                        </Field>
+                        <Field label="Текст">
+                          <textarea
+                            className="ov-field min-h-[60px]"
+                            value={c.body}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).business.creatives,
+                              ]
+                              creatives[0] = { ...c, body: e.target.value }
+                              patchAds({
+                                business: {
+                                  ...(prefs.ads || DEFAULT_ADS).business,
+                                  creatives,
+                                },
+                              })
+                            }}
+                          />
+                        </Field>
+                        <Field label="Медия URL (по желание)">
+                          <input
+                            className="ov-field"
+                            placeholder="https://…/banner.jpg"
+                            value={c.mediaUrl}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).business.creatives,
+                              ]
+                              creatives[0] = {
+                                ...c,
+                                mediaUrl: e.target.value,
+                                format: e.target.value ? 'image' : 'text',
+                              }
+                              patchAds({
+                                business: {
+                                  ...(prefs.ads || DEFAULT_ADS).business,
+                                  creatives,
+                                },
+                              })
+                            }}
+                          />
+                        </Field>
+                        <Field label="Линк при клик">
+                          <input
+                            className="ov-field"
+                            placeholder="https://…"
+                            value={c.clickUrl}
+                            onChange={(e) => {
+                              const creatives = [
+                                ...(prefs.ads || DEFAULT_ADS).business.creatives,
+                              ]
+                              creatives[0] = { ...c, clickUrl: e.target.value }
+                              patchAds({
+                                business: {
+                                  ...(prefs.ads || DEFAULT_ADS).business,
+                                  creatives,
+                                },
+                              })
+                            }}
+                          />
+                        </Field>
+                      </div>
+                    ))}
+                  </>
+                ) : null}
+              </div>
+              ) : null}
+
+              <div className="rounded-2xl border border-teal-500/25 bg-teal-500/5 p-3 space-y-2">
+                <p className="text-xs font-bold text-teal-800 dark:text-teal-100">
+                  Find My (като iPhone)
+                </p>
+                <p className="text-[10px] text-[var(--muted)]">
+                  Google Maps с точни координати · opt-in · кръгът се настройва
+                  от бутона Find My в дашборда. За всички пинове наведнъж сложи{' '}
+                  <code className="text-[9px]">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>.
+                </p>
+                <ToggleRow
+                  label="Включи Find My (споделяй GPS)"
+                  checked={Boolean(prefs.profileSocial?.geoShare?.enabled)}
+                  onChange={(v) =>
+                    updatePrefs((current) => ({
+                      profileSocial: {
+                        ...current.profileSocial,
+                        geoShare: {
+                          ...current.profileSocial.geoShare,
+                          enabled: v,
+                          precision: v
+                            ? 'precise'
+                            : current.profileSocial.geoShare?.precision ||
+                              'city',
+                          last: v ? current.profileSocial.geoShare?.last : null,
+                          circleIds:
+                            current.profileSocial.geoShare?.circleIds || [],
+                        },
+                        showOnMap: v
+                          ? true
+                          : current.profileSocial.showOnMap,
+                      },
+                    }))
+                  }
+                />
+                <Field label="Прецизност">
+                  <select
+                    className="ov-field"
+                    value={
+                      prefs.profileSocial?.geoShare?.precision || 'city'
+                    }
+                    onChange={(e) =>
+                      updatePrefs((current) => ({
+                        profileSocial: {
+                          ...current.profileSocial,
+                          geoShare: {
+                            ...current.profileSocial.geoShare,
+                            precision: e.target.value as 'precise' | 'city',
+                          },
+                        },
+                      }))
+                    }
+                  >
+                    <option value="city">Град (по-приватно)</option>
+                    <option value="precise">Точно GPS</option>
+                  </select>
+                </Field>
+                <p className="text-[10px] text-[var(--muted)]">
+                  В кръга:{' '}
+                  {(prefs.profileSocial?.geoShare?.circleIds || []).length}{' '}
+                  души
+                </p>
+              </div>
             </div>
           )}
 
@@ -1723,9 +3502,9 @@ function ThemeBlock({
   return (
     <div className="space-y-3 rounded-2xl border border-[var(--panel-border)] bg-[var(--chip)] p-3">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-        Тема · 8 режима
+        Тема
       </p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {THEME_OPTIONS.map((opt) => (
           <button
             key={opt.id}
@@ -1747,57 +3526,6 @@ function ThemeBlock({
           </button>
         ))}
       </div>
-
-      <p className="pt-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-        Тапет
-      </p>
-      <div className="grid grid-cols-3 gap-1.5">
-        {WALLPAPER_PRESETS.slice(0, 6).map((paper) => (
-          <button
-            key={paper.id}
-            type="button"
-            onClick={() =>
-              onAppearance({
-                wallpaperId: paper.id,
-                customWallpaper: null,
-              })
-            }
-            className={`overflow-hidden rounded-lg border ${
-              !appearance.customWallpaper &&
-              appearance.wallpaperId === paper.id
-                ? 'border-[var(--accent)]'
-                : 'border-[var(--panel-border)]'
-            }`}
-          >
-            {paper.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={paper.imageUrl}
-                alt={paper.name}
-                className="h-12 w-full object-cover"
-              />
-            ) : (
-              <span className="flex h-12 items-center justify-center bg-[var(--panel)] text-[9px] text-[var(--muted)]">
-                None
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-      <label className="block text-[11px] text-[var(--muted)]">
-        Затъмняване {Math.round(appearance.wallpaperDim * 100)}%
-        <input
-          type="range"
-          min={0.15}
-          max={0.85}
-          step={0.05}
-          className="mt-1 w-full"
-          value={appearance.wallpaperDim}
-          onChange={(e) =>
-            onAppearance({ wallpaperDim: Number(e.target.value) })
-          }
-        />
-      </label>
       <label className="flex cursor-pointer items-center gap-2 text-xs">
         <input
           type="file"
@@ -1822,8 +3550,19 @@ function ThemeBlock({
             reader.readAsDataURL(file)
           }}
         />
-        Качи свой тапет
+        Собствен фон (по желание)
       </label>
+      {appearance.customWallpaper ? (
+        <button
+          type="button"
+          className="ov-btn-ghost !text-xs"
+          onClick={() =>
+            onAppearance({ customWallpaper: null, wallpaperId: 'none' })
+          }
+        >
+          Премахни собствения фон
+        </button>
+      ) : null}
     </div>
   )
 }

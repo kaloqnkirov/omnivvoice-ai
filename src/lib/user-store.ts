@@ -16,10 +16,30 @@ import {
 import { DEFAULT_SNAP_PLUS, type SnapPlusState } from '@/lib/snap-plus'
 import {
   DEFAULT_APPEARANCE,
+  normalizeThemeId,
   type AppearanceSettings,
   type ThemeId,
 } from '@/lib/appearance'
 import type { CustomStudioRoom } from '@/lib/studio-rooms'
+import type { MyFaceLookId } from '@/lib/my-face'
+import { parseAiRooms, type AiRoomSaved } from '@/lib/ai-rooms'
+import {
+  DEFAULT_STREAMING,
+  type StreamingSettings,
+} from '@/lib/streaming'
+import {
+  DEFAULT_BUSINESS_ROOM,
+  normalizeBusinessRoom,
+  type BusinessRoomPrefs,
+} from '@/lib/business-presets'
+import { DEFAULT_ADS, normalizeAds, type AdsSettings } from '@/lib/ads'
+import {
+  DEFAULT_MEET_MATCH,
+  normalizeMeetMatch,
+  type MeetMatchState,
+} from '@/lib/meet-match'
+import type { AdminPlanGrant } from '@/lib/admin-grants'
+import { applyAdminGrantsToUser } from '@/lib/admin-grants'
 
 export type ContactMethod = 'email' | 'phone'
 
@@ -39,6 +59,8 @@ export type OmniUser = {
   phone: string
   password: string
   avatarDataUrl: string
+  /** Styled variants from Avatar Studio */
+  avatarGallery?: string[]
   contactMethod: ContactMethod
   nativeLanguage: string
   company: string
@@ -74,6 +96,8 @@ export type RoomSettings = {
   cameraPreset: 'close' | 'medium' | 'wide' | 'presenter'
   backgroundBlur: boolean
   virtualBackground: boolean
+  /** real | contour (body cutout) | blur | oval CSS fallback */
+  cutoutMode: 'real' | 'contour' | 'blur' | 'oval'
   mirrorVideo: boolean
   hdVideo: boolean
   frameRate: 24 | 30 | 60
@@ -104,6 +128,9 @@ export type RoomSettings = {
   customStudioRooms: CustomStudioRoom[]
   videoFilter: 'none' | 'cinema' | 'warm' | 'cool' | 'soft' | 'vivid' | 'noir'
   videoQuality: 'auto' | '360p' | '720p' | '1080p'
+  /** Optional MyFace polish — each user opts in (like AI background) */
+  myFaceEnabled: boolean
+  myFaceLook: MyFaceLookId
 }
 
 export type ChatSettings = {
@@ -127,6 +154,8 @@ export type ChatSettings = {
   blockedAtRest: boolean
   groupChatEnabled: boolean
   maxAttachmentMb: number
+  /** Any plan: allow recording conversations */
+  allowRecording?: boolean
 }
 
 export type PlatformConnection = {
@@ -143,6 +172,8 @@ export type PodcastSettings = {
   description: string
   tags: string
   language: string
+  /** Classic podcast studio vs content Streaming (Twitch-style) */
+  sessionMode: 'podcast' | 'streaming'
   layout: 'grid' | 'spotlight' | 'cinema' | 'vertical'
   resolution: '720p' | '1080p' | '1440p' | '4k'
   bitrateKbps: number
@@ -165,6 +196,7 @@ export type PodcastSettings = {
   vodSave: boolean
   rssFeedUrl: string
   platforms: Record<StreamPlatformId, PlatformConnection>
+  streaming: StreamingSettings
 }
 
 export type NotificationSettings = {
@@ -180,6 +212,8 @@ export type NotificationSettings = {
 
 export type VoiceSettings = {
   voiceURI: string
+  /** Curated picker: 3F / 3M / 2 child — empty = Auto */
+  voicePreset: string
   rate: number
   pitch: number
   targetLanguage: string
@@ -189,7 +223,11 @@ export type VoiceSettings = {
 
 export type MusicSettings = {
   enabled: boolean
+  /** Built-in Mixkit library vs Spotify embed */
+  source: 'library' | 'spotify'
   trackId: string
+  /** open.spotify.com / spotify: URI — used when source === 'spotify' */
+  spotifyUrl: string
   volume: number
   duckDuringSpeech: boolean
 }
@@ -206,6 +244,20 @@ export type ExperienceSettings = {
   callRecap: boolean
   showPresence: boolean
   phrasebook: Phrase[]
+  /** Business plan: pre-configure room AI from notes → contract */
+  businessRoom: BusinessRoomPrefs
+  /** Podcast: trending questions / facts assistant */
+  aiPodcastAssistant?: boolean
+  /** Business: nudges mid-conversation (not on Normal) */
+  aiBusinessCoach?: boolean
+  /** Business: country etiquette advisor (default on) */
+  aiCultureAdvisor?: boolean
+  /** Pre-set podcast episode topic for AI */
+  podcastTopic?: string
+  /** ISO-ish country code for culture pack */
+  partnerCountry?: string
+  /** Normal plan: mini-games in chat */
+  miniGames?: boolean
 }
 
 export type WebsiteChannel = 'chat' | 'call' | 'both'
@@ -243,12 +295,26 @@ export type AppPreferences = {
   voice: VoiceSettings
   music: MusicSettings
   experience: ExperienceSettings
+  /** Optional sponsor ads — Business & Podcast paid plans */
+  ads: AdsSettings
   presence: PresenceStatus
   profileSocial: ProfileSocial
   snapPlus: SnapPlusState
+  /** User-saved AI virtual rooms (capped by plan — see AI_ROOM_QUOTAS) */
+  aiRooms: AiRoomSaved[]
+  /** Stripe paid-content unlocks (content ids) */
+  paidUnlocks: string[]
+  /** Случайни запознанства — off by default */
+  meetMatch: MeetMatchState
+  /** Admin: free Business/Podcast entitlements by email */
+  adminPlanGrants: AdminPlanGrant[]
+  /** Extra Cloud Translation chars from invite bonuses */
+  translateBonusChars: number
+  /** How many referral invites were claimed for bonus */
+  referralInvitesClaimed: number
 }
 
-const STORAGE_KEY = 'omnivvoice.preferences.v8'
+const STORAGE_KEY = 'omnivvoice.preferences.v9'
 
 function emptyPlatform(): PlatformConnection {
   return {
@@ -275,13 +341,28 @@ export const DEFAULT_PLATFORMS: Record<StreamPlatformId, PlatformConnection> = {
     ...emptyPlatform(),
     rtmpUrl: 'rtmp://live.twitch.tv/app',
   },
-  linkedin: { ...emptyPlatform() },
+  linkedin: {
+    ...emptyPlatform(),
+    rtmpUrl: 'rtmps://live-api.linkedin.com:443/rtc',
+  },
   x: { ...emptyPlatform() },
   kick: { ...emptyPlatform(), rtmpUrl: 'rtmps://stream.kick.com/live' },
   discord: { ...emptyPlatform() },
   spotify: { ...emptyPlatform() },
   apple_podcasts: { ...emptyPlatform() },
-  rumble: { ...emptyPlatform() },
+  rumble: {
+    ...emptyPlatform(),
+    rtmpUrl: 'rtmp://live.rumble.com/live',
+  },
+  hbo: { ...emptyPlatform() },
+  netflix: { ...emptyPlatform() },
+  disney: { ...emptyPlatform() },
+  prime: { ...emptyPlatform() },
+  apple_tv: { ...emptyPlatform() },
+  playstation: { ...emptyPlatform() },
+  xbox: { ...emptyPlatform() },
+  geforce_now: { ...emptyPlatform() },
+  smart_tv: { ...emptyPlatform() },
 }
 
 export const DEFAULT_ROOM: RoomSettings = {
@@ -289,8 +370,9 @@ export const DEFAULT_ROOM: RoomSettings = {
   roomId: 'ov-room-001',
   lighting: 'studio',
   cameraPreset: 'medium',
-  backgroundBlur: true,
+  backgroundBlur: false,
   virtualBackground: true,
+  cutoutMode: 'contour',
   mirrorVideo: true,
   hdVideo: true,
   frameRate: 30,
@@ -319,6 +401,8 @@ export const DEFAULT_ROOM: RoomSettings = {
   customStudioRooms: [],
   videoFilter: 'none',
   videoQuality: '1080p',
+  myFaceEnabled: false,
+  myFaceLook: 'soft_glow',
 }
 
 export const DEFAULT_CHAT: ChatSettings = {
@@ -342,6 +426,7 @@ export const DEFAULT_CHAT: ChatSettings = {
   blockedAtRest: true,
   groupChatEnabled: true,
   maxAttachmentMb: 25,
+  allowRecording: true,
 }
 
 export const DEFAULT_PODCAST: PodcastSettings = {
@@ -350,11 +435,12 @@ export const DEFAULT_PODCAST: PodcastSettings = {
   description: 'Live multilingual show with translated hosts.',
   tags: 'ai, translation, podcast, live',
   language: 'en',
+  sessionMode: 'podcast',
   layout: 'grid',
   resolution: '1080p',
   bitrateKbps: 4500,
   fps: 30,
-  audioBitrateKbps: 192,
+  audioBitrateKbps: 256,
   obsEnabled: true,
   obsScene: 'Main Studio',
   multistream: true,
@@ -372,6 +458,7 @@ export const DEFAULT_PODCAST: PodcastSettings = {
   vodSave: true,
   rssFeedUrl: '',
   platforms: DEFAULT_PLATFORMS,
+  streaming: DEFAULT_STREAMING,
 }
 
 export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
@@ -387,6 +474,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 
 export const DEFAULT_VOICE: VoiceSettings = {
   voiceURI: '',
+  voicePreset: '',
   rate: 1,
   pitch: 1,
   targetLanguage: 'en',
@@ -396,7 +484,9 @@ export const DEFAULT_VOICE: VoiceSettings = {
 
 export const DEFAULT_MUSIC: MusicSettings = {
   enabled: false,
+  source: 'library',
   trackId: 'soft-lounge',
+  spotifyUrl: '',
   volume: 0.28,
   duckDuringSpeech: true,
 }
@@ -433,6 +523,13 @@ export const DEFAULT_EXPERIENCE: ExperienceSettings = {
   callRecap: true,
   showPresence: true,
   phrasebook: DEFAULT_PHRASEBOOK,
+  businessRoom: DEFAULT_BUSINESS_ROOM,
+  aiPodcastAssistant: true,
+  aiBusinessCoach: true,
+  aiCultureAdvisor: true,
+  podcastTopic: '',
+  partnerCountry: 'bg',
+  miniGames: true,
 }
 
 export const DEFAULT_SOCIAL_LINKS: SocialLink[] = [
@@ -467,6 +564,7 @@ export const DEMO_CONVERSATIONS: Conversation[] = [
     id: 'conv-1',
     title: 'Мария Петрова',
     isGroup: false,
+    space: 'chat',
     members: [
       {
         id: 'm1',
@@ -505,6 +603,7 @@ export const DEMO_CONVERSATIONS: Conversation[] = [
     id: 'conv-2',
     title: 'Studio Crew',
     isGroup: true,
+    space: 'room',
     members: [
       { id: 'g1', name: 'Alex', language: 'es', presence: 'online' },
       { id: 'g2', name: 'Yuki', language: 'ja', presence: 'in_studio' },
@@ -585,19 +684,8 @@ export const DEMO_SUBSCRIBERS: Subscriber[] = [
   },
 ]
 
-const THEME_IDS: ThemeId[] = [
-  'light',
-  'dark',
-  'midnight',
-  'ocean',
-  'sunset',
-  'forest',
-  'aurora',
-  'carbon',
-]
-
 function normalizeTheme(value: unknown): ThemeId {
-  return THEME_IDS.includes(value as ThemeId) ? (value as ThemeId) : 'dark'
+  return normalizeThemeId(value)
 }
 
 function defaults(): AppPreferences {
@@ -605,12 +693,12 @@ function defaults(): AppPreferences {
     theme: 'dark',
     appearance: DEFAULT_APPEARANCE,
     user: null,
-    subscribers: DEMO_SUBSCRIBERS,
+    subscribers: [],
     blocked: [],
-    conversations: DEMO_CONVERSATIONS,
+    conversations: [],
     invites: [],
     socialLinks: DEFAULT_SOCIAL_LINKS,
-    websites: DEMO_WEBSITES,
+    websites: [],
     room: DEFAULT_ROOM,
     chat: DEFAULT_CHAT,
     podcast: DEFAULT_PODCAST,
@@ -618,9 +706,16 @@ function defaults(): AppPreferences {
     voice: DEFAULT_VOICE,
     music: DEFAULT_MUSIC,
     experience: DEFAULT_EXPERIENCE,
+    ads: DEFAULT_ADS,
     presence: 'online',
     profileSocial: DEFAULT_PROFILE_SOCIAL,
     snapPlus: DEFAULT_SNAP_PLUS,
+    aiRooms: [],
+    paidUnlocks: [],
+    meetMatch: DEFAULT_MEET_MATCH,
+    adminPlanGrants: [],
+    translateBonusChars: 0,
+    referralInvitesClaimed: 0,
   }
 }
 
@@ -630,6 +725,7 @@ export function loadPreferences(): AppPreferences {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ||
+      window.localStorage.getItem('omnivvoice.preferences.v8') ||
       window.localStorage.getItem('omnivvoice.preferences.v7') ||
       window.localStorage.getItem('omnivvoice.preferences.v6') ||
       window.localStorage.getItem('omnivvoice.preferences.v5') ||
@@ -639,12 +735,46 @@ export function loadPreferences(): AppPreferences {
       window.localStorage.getItem('omnivvoice.preferences.v1')
     if (!raw) return defaults()
     const parsed = JSON.parse(raw) as Partial<AppPreferences>
+    const demoConvIds = new Set(DEMO_CONVERSATIONS.map((c) => c.id))
+    const demoSubIds = new Set(DEMO_SUBSCRIBERS.map((s) => s.id))
+    if (Array.isArray(parsed.conversations)) {
+      parsed.conversations = parsed.conversations.filter(
+        (c) =>
+          !demoConvIds.has(c.id) &&
+          !String(c.id).startsWith('demo_') &&
+          !/studio crew|мария петрова/i.test(c.title || '')
+      )
+    }
+    if (Array.isArray(parsed.subscribers)) {
+      parsed.subscribers = parsed.subscribers.filter(
+        (s) => !demoSubIds.has(s.id) && !String(s.id).startsWith('demo_')
+      )
+    }
+    if (Array.isArray(parsed.websites)) {
+      const demoWeb = new Set(DEMO_WEBSITES.map((w) => w.id))
+      parsed.websites = parsed.websites.filter((w) => !demoWeb.has(w.id))
+    }
     const base = defaults()
-    const user = parsed.user
+    const adminPlanGrants: AdminPlanGrant[] = Array.isArray(
+      (parsed as { adminPlanGrants?: AdminPlanGrant[] }).adminPlanGrants
+    )
+      ? (parsed as { adminPlanGrants: AdminPlanGrant[] }).adminPlanGrants.filter(
+          (g) =>
+            g &&
+            typeof g.email === 'string' &&
+            (g.plan === 'business' || g.plan === 'podcast')
+        )
+      : []
+    const rawUser = parsed.user
       ? {
           ...parsed.user,
           password: parsed.user.password || '',
           avatarDataUrl: parsed.user.avatarDataUrl || '',
+          avatarGallery: Array.isArray(parsed.user.avatarGallery)
+            ? parsed.user.avatarGallery.filter(
+                (x): x is string => typeof x === 'string'
+              ).slice(0, 12)
+            : [],
           planPaid:
             typeof parsed.user.planPaid === 'boolean'
               ? parsed.user.planPaid
@@ -662,6 +792,9 @@ export function loadPreferences(): AppPreferences {
           authProvider: parsed.user.authProvider || ('email' as AuthProvider),
         }
       : null
+    const user = rawUser
+      ? applyAdminGrantsToUser(rawUser, adminPlanGrants)
+      : null
     const theme = normalizeTheme(parsed.theme || parsed.appearance?.theme)
     return {
       theme,
@@ -671,13 +804,12 @@ export function loadPreferences(): AppPreferences {
         theme: normalizeTheme(parsed.appearance?.theme || theme),
       },
       user,
-      subscribers: parsed.subscribers?.length
-        ? parsed.subscribers
-        : DEMO_SUBSCRIBERS,
+      // Never re-seed demo Maria/Studio Crew when the user cleared lists
+      subscribers: Array.isArray(parsed.subscribers) ? parsed.subscribers : [],
       blocked: parsed.blocked || [],
-      conversations: (parsed.conversations?.length
+      conversations: (Array.isArray(parsed.conversations)
         ? parsed.conversations
-        : DEMO_CONVERSATIONS
+        : []
       ).map((conv) => ({
         ...conv,
         sessionOpen:
@@ -694,24 +826,61 @@ export function loadPreferences(): AppPreferences {
       socialLinks: parsed.socialLinks?.length
         ? parsed.socialLinks
         : DEFAULT_SOCIAL_LINKS,
-      websites: parsed.websites?.length ? parsed.websites : DEMO_WEBSITES,
+      websites: Array.isArray(parsed.websites) ? parsed.websites : [],
       room: {
         ...base.room,
         ...parsed.room,
         customStudioRooms: parsed.room?.customStudioRooms || [],
+        cutoutMode:
+          parsed.room?.cutoutMode ||
+          (parsed.room?.virtualBackground === false
+            ? 'real'
+            : parsed.room?.backgroundBlur
+              ? 'blur'
+              : 'contour'),
+        myFaceEnabled: Boolean(parsed.room?.myFaceEnabled),
+        myFaceLook: parsed.room?.myFaceLook || base.room.myFaceLook,
       },
       chat: { ...base.chat, ...parsed.chat },
       podcast: {
         ...base.podcast,
         ...parsed.podcast,
+        sessionMode:
+          parsed.podcast?.sessionMode === 'streaming' ||
+          parsed.podcast?.sessionMode === 'podcast'
+            ? parsed.podcast.sessionMode
+            : base.podcast.sessionMode,
         platforms: {
           ...base.podcast.platforms,
           ...(parsed.podcast?.platforms || {}),
         },
+        streaming: {
+          ...DEFAULT_STREAMING,
+          ...(parsed.podcast?.streaming || {}),
+          paidContent: {
+            ...DEFAULT_STREAMING.paidContent,
+            ...(parsed.podcast?.streaming?.paidContent || {}),
+          },
+        },
       },
       notifications: { ...base.notifications, ...parsed.notifications },
-      voice: { ...base.voice, ...parsed.voice },
-      music: { ...base.music, ...parsed.music },
+      voice: {
+        ...base.voice,
+        ...parsed.voice,
+        voicePreset:
+          typeof parsed.voice?.voicePreset === 'string'
+            ? parsed.voice.voicePreset
+            : base.voice.voicePreset,
+      },
+      music: {
+        ...base.music,
+        ...parsed.music,
+        source:
+          parsed.music?.source === 'spotify' || parsed.music?.source === 'library'
+            ? parsed.music.source
+            : 'library',
+        spotifyUrl: parsed.music?.spotifyUrl || '',
+      },
       experience: {
         ...base.experience,
         ...parsed.experience,
@@ -719,12 +888,25 @@ export function loadPreferences(): AppPreferences {
           parsed.experience?.phrasebook?.length
             ? parsed.experience.phrasebook
             : DEFAULT_PHRASEBOOK,
+        businessRoom: normalizeBusinessRoom(
+          parsed.experience?.businessRoom || base.experience.businessRoom
+        ),
       },
+      ads: normalizeAds(parsed.ads),
       presence: parsed.presence || 'online',
       profileSocial: {
         ...DEFAULT_PROFILE_SOCIAL,
         ...(parsed.profileSocial || {}),
         stories: parsed.profileSocial?.stories || [],
+        geoShare: {
+          ...DEFAULT_PROFILE_SOCIAL.geoShare,
+          ...(parsed.profileSocial?.geoShare || {}),
+          circleIds: Array.isArray(parsed.profileSocial?.geoShare?.circleIds)
+            ? parsed.profileSocial.geoShare.circleIds.filter(
+                (x): x is string => typeof x === 'string'
+              )
+            : [],
+        },
       },
       snapPlus: {
         ...DEFAULT_SNAP_PLUS,
@@ -737,6 +919,32 @@ export function loadPreferences(): AppPreferences {
           ? parsed.snapPlus.spotlight
           : DEFAULT_SNAP_PLUS.spotlight,
       },
+      paidUnlocks: Array.isArray(parsed.paidUnlocks)
+        ? parsed.paidUnlocks.filter((x): x is string => typeof x === 'string')
+        : [],
+      aiRooms: parseAiRooms(
+        parsed.aiRooms,
+        user?.isAdmin ? 'podcast' : user?.plan || 'free'
+      ),
+      meetMatch: normalizeMeetMatch(parsed.meetMatch),
+      adminPlanGrants,
+      translateBonusChars:
+        typeof (parsed as { translateBonusChars?: number }).translateBonusChars ===
+        'number'
+          ? Math.max(
+              0,
+              (parsed as { translateBonusChars: number }).translateBonusChars
+            )
+          : 0,
+      referralInvitesClaimed:
+        typeof (parsed as { referralInvitesClaimed?: number })
+          .referralInvitesClaimed === 'number'
+          ? Math.max(
+              0,
+              (parsed as { referralInvitesClaimed: number })
+                .referralInvitesClaimed
+            )
+          : 0,
     }
   } catch {
     return defaults()
@@ -745,7 +953,33 @@ export function loadPreferences(): AppPreferences {
 
 export function savePreferences(prefs: AppPreferences) {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
+  } catch (err) {
+    // QuotaExceeded from fat data: URLs — strip heavy custom banners and retry once
+    const slim = {
+      ...prefs,
+      room: {
+        ...prefs.room,
+        customStudioRooms: (prefs.room.customStudioRooms || []).map((r) => ({
+          ...r,
+          imageDataUrl: r.imageDataUrl?.startsWith('data:')
+            ? ''
+            : r.imageDataUrl,
+        })),
+        customBackground:
+          prefs.room.customBackground?.startsWith('data:')
+            ? null
+            : prefs.room.customBackground,
+      },
+    }
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(slim))
+      console.warn('savePreferences: trimmed data: banners after quota error', err)
+    } catch (err2) {
+      console.error('savePreferences failed', err2)
+    }
+  }
 }
 
 export function createUserId() {

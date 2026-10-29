@@ -9,9 +9,12 @@ import {
   BellOff,
   Camera,
   ChevronDown,
+  ChevronLeft,
   Copy,
   DoorOpen,
+  Flag,
   Headphones,
+  Heart,
   Link2,
   Lock,
   LogOut,
@@ -19,6 +22,7 @@ import {
   MessageCircle,
   Moon,
   MoreHorizontal,
+  Newspaper,
   Pencil,
   Phone,
   Pin,
@@ -26,6 +30,7 @@ import {
   Radio,
   Search,
   Settings2,
+  Share2,
   Sun,
   Trash2,
   UserPlus,
@@ -34,28 +39,143 @@ import {
   Volume2,
   Waves,
 } from 'lucide-react'
+import type { CustomStudioRoom } from '@/lib/studio-rooms'
+import {
+  formatLiveQuotaLabel,
+  recordLiveStart,
+  recordLiveStop,
+} from '@/lib/live-quota'
+import OnboardingTour from '@/components/OnboardingTour'
+import CoachBubble from '@/components/CoachBubble'
+import type { CoachmarkId } from '@/lib/coachmarks'
+
+const EMPTY_CUSTOM_ROOMS: CustomStudioRoom[] = []
 import AppearancePanel from '@/components/AppearancePanel'
+import {
+  BusinessAside,
+  BusinessToolRail,
+  extractPipelineDeals,
+} from '@/components/BusinessWorkspace'
+import CallRecap from '@/components/CallRecap'
+import {
+  collectIntelSources,
+  DEFAULT_INTEL_OPTIONS,
+  fetchBusinessIntel,
+  formatAgreementForClipboard,
+  formatIntelForClipboard,
+  formatWrittenContractForClipboard,
+  type BusinessIntelData,
+  type BusinessIntelOptionId,
+} from '@/lib/business-intel'
 import ChatComposer from '@/components/ChatComposer'
 import CreateRoomWizard, {
   type CreateRoomDraft,
 } from '@/components/CreateRoomWizard'
 import ContactImportModal from '@/components/ContactImportModal'
+import LiveGoPanel from '@/components/LiveGoPanel'
 import ContextMenu, { type ContextMenuItem } from '@/components/ContextMenu'
 import FriendshipProfile from '@/components/FriendshipProfile'
 import MemoriesVault from '@/components/MemoriesVault'
 import MoodAvatar from '@/components/MoodAvatar'
+import {
+  PodcastAside,
+  PodcastToolRail,
+} from '@/components/PodcastWorkspace'
 import ProfileHub from '@/components/ProfileHub'
 import QuickCapture from '@/components/QuickCapture'
 import RichMessageBubble from '@/components/RichMessageBubble'
 import SettingsPanel from '@/components/SettingsPanel'
 import SpotlightFeed from '@/components/SpotlightFeed'
-import StudioMap from '@/components/StudioMap'
+import PageWall from '@/components/PageWall'
+import SpaceAdminBar from '@/components/SpaceAdminBar'
+import { canManageSpace } from '@/lib/social-spaces'
+import {
+  AI_BUILTIN_ROOMS,
+  canSaveAiRoom,
+  capAiRoomsForPlan,
+  pickAiRoomImage,
+  type AiRoomSaved,
+} from '@/lib/ai-rooms'
+import ProfilePageCard from '@/components/ProfilePageCard'
+import DiscoverPagesPanel from '@/components/DiscoverPagesPanel'
+import InviteShareSheet from '@/components/InviteShareSheet'
+import FriendSearchPanel from '@/components/FriendSearchPanel'
+import MeetMatchModal from '@/components/MeetMatchModal'
+import MeetMatchRoom from '@/components/MeetMatchRoom'
+import InstallAppButton from '@/components/InstallAppButton'
+import HomeFeed from '@/components/HomeFeed'
+import FeedNotificationsBell from '@/components/FeedNotificationsBell'
+import FeedRightRail from '@/components/FeedRightRail'
+import SocialSpaceViewer from '@/components/SocialSpaceViewer'
+import PlanGrowthCoach from '@/components/PlanGrowthCoach'
+import FriendActionSheet from '@/components/FriendActionSheet'
+import OperatorVoiceCall from '@/components/OperatorVoiceCall'
+import HelpReportModal from '@/components/HelpReportModal'
+import ReportIssueNotice from '@/components/ReportIssueNotice'
+import {
+  BusinessAiCoachPanel,
+  FeatureSuggestionsBanner,
+} from '@/components/AiAssistPanels'
+import { bumpFeatureUse } from '@/lib/feature-suggest'
+import ShareGrowPanel from '@/components/ShareGrowPanel'
+import {
+  hasPendingFollowOrJoin,
+  isGroupSpace,
+  makeFollowOrJoinRequest,
+} from '@/lib/social-access'
+import { pushFeedNotification, topEngagedIds } from '@/lib/feed-social'
+import {
+  resolveStartupPlan,
+  saveLastActivePlan,
+} from '@/lib/last-plan'
+import {
+  maxLiveParticipants,
+  roomCapacityLabel,
+  roomIsFull,
+} from '@/lib/room-capacity'
+import { applyAdminGrantsToUser } from '@/lib/admin-grants'
+import {
+  bonusLabel,
+  claimInstallBonus,
+  claimReferralBonuses,
+  INSTALL_BONUS_CHARS,
+  REFERRAL_BONUS_CHARS,
+} from '@/lib/referral-bonus'
+import { isStandaloneDisplay } from '@/lib/pwa'
+import type { FriendHit } from '@/lib/friend-directory'
+import {
+  DEFAULT_MEET_MATCH,
+  bumpMeetStreak,
+  type MeetMatchCandidate,
+  type MeetMatchProfile,
+  type MeetRoomMeta,
+} from '@/lib/meet-match'
+import { isMeetConversationId, meetConversationId } from '@/lib/meet-gifts'
+import {
+  allowedPageFormatsForUser,
+  canCreateOwnedPage,
+  canSeeConversation,
+  defaultFollowPolicy,
+  pageSlotSummary,
+  planPageQuotaLabel,
+} from '@/lib/social-privacy'
+import type { SpaceFormat } from '@/lib/social-spaces'
+import WorldPresenceMap from '@/components/WorldPresenceMap'
+import {
+  workspaceChrome,
+  workspaceForUser,
+  type DealStageId,
+} from '@/lib/plan-modes'
+import type { StreamPlatformId } from '@/lib/platforms'
 import type {
   Conversation,
   ConversationMessage,
   InviteLink,
   JoinRequest,
 } from '@/lib/auth-types'
+import { conversationSpace } from '@/lib/auth-types'
+import { appInviteUrl, guestInviteUrl } from '@/lib/invite-url'
+import { createServerGuestInvite } from '@/lib/create-guest-invite'
 import {
   getUnlockedPlans,
   hasFullAccess,
@@ -64,7 +184,8 @@ import {
   withUnlockedPlan,
 } from '@/lib/access'
 import { useAmbientMusic } from '@/hooks/useAmbientMusic'
-import { PLANS, type PlanId } from '@/lib/languages'
+import { PLANS, getLanguage, type PlanId } from '@/lib/languages'
+import { parseSpotifyUrl } from '@/lib/spotify'
 import {
   fetchBackendUser,
   isClientBackendEnabled,
@@ -96,18 +217,87 @@ export default function DashboardPage() {
   const [creatingRoom, setCreatingRoom] = useState(false)
   const user = prefs.user
   const [query, setQuery] = useState('')
-  const [activeId, setActiveId] = useState(prefs.conversations[0]?.id || '')
+  const [newSubName, setNewSubName] = useState('')
+  const [newSubContact, setNewSubContact] = useState('')
+  const [activeId, setActiveId] = useState('')
+  /** Facebook-style: thread/page only after explicit click */
+  const [threadOpen, setThreadOpen] = useState(false)
+  /** Dedicated page/group viewer from feed */
+  const [socialView, setSocialView] = useState<{
+    id: string
+    postId?: string
+  } | null>(null)
+  const [contactsOpen, setContactsOpen] = useState(false)
+  const [friendSheetId, setFriendSheetId] = useState<string | null>(null)
+  const [operatorCall, setOperatorCall] = useState<{
+    name: string
+    convId?: string
+  } | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [recording, setRecording] = useState(false)
   const [draft, setDraft] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [planOpen, setPlanOpen] = useState(false)
+  const [dealStageFilter, setDealStageFilter] = useState<DealStageId | 'all'>(
+    'all'
+  )
+  const [voiceBridgeOn, setVoiceBridgeOn] = useState(true)
+  const [salesAssistOn, setSalesAssistOn] = useState(true)
+  const [obsLive, setObsLive] = useState(false)
+  const [shortQueued, setShortQueued] = useState(false)
+  const [recapOpen, setRecapOpen] = useState(false)
+  const [intelSelecting, setIntelSelecting] = useState(true)
+  const [intelLoading, setIntelLoading] = useState(false)
+  const [intelError, setIntelError] = useState<string | null>(null)
+  const [intelData, setIntelData] = useState<BusinessIntelData | null>(null)
+  const [intelOptions, setIntelOptions] = useState<BusinessIntelOptionId[]>(() =>
+    prefs.experience?.businessRoom?.defaultIntelOptions?.length
+      ? [...prefs.experience.businessRoom.defaultIntelOptions]
+      : [...DEFAULT_INTEL_OPTIONS]
+  )
+  const [crmTick, setCrmTick] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsScope, setSettingsScope] = useState<'room' | 'full'>('full')
   const [settingsTab, setSettingsTab] = useState<
-    'account' | 'room' | 'music' | 'chat' | 'podcast'
+    | 'account'
+    | 'room'
+    | 'music'
+    | 'chat'
+    | 'podcast'
+    | 'secretary'
+    | 'platforms'
+    | 'guests'
+    | 'subscribers'
   >('account')
   const [importOpen, setImportOpen] = useState(false)
   const [inviteCopied, setInviteCopied] = useState(false)
-  const [tab, setTab] = useState<'chats' | 'subscribers' | 'blocked'>('chats')
+  const [inviteShare, setInviteShare] = useState<{
+    url: string
+    label: string
+    roomId?: string
+  } | null>(null)
+  const [liveGoOpen, setLiveGoOpen] = useState(false)
+  const [forceOnboarding, setForceOnboarding] = useState(false)
+  const [meetMatchOpen, setMeetMatchOpen] = useState(false)
+  const [meetRoomOpen, setMeetRoomOpen] = useState(false)
+  const [coachTrigger, setCoachTrigger] = useState<CoachmarkId | null>(null)
+  const [coachTick, setCoachTick] = useState(0)
+
+  function showCoach(id: CoachmarkId) {
+    setCoachTrigger(id)
+    setCoachTick((t) => t + 1)
+  }
+
+  useEffect(() => {
+    const replay = () => setForceOnboarding(true)
+    window.addEventListener('omnivvoice:onboarding', replay)
+    return () => window.removeEventListener('omnivvoice:onboarding', replay)
+  }, [])
+  const [tab, setTab] = useState<
+    'feed' | 'chats' | 'rooms' | 'subscribers' | 'blocked'
+  >('feed')
   const [inboxFilter, setInboxFilter] = useState<
-    'all' | 'unread' | 'groups' | 'archived'
+    'all' | 'unread' | 'live' | 'archived'
   >('all')
   const [replyPreview, setReplyPreview] = useState<string | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -134,6 +324,162 @@ export default function DashboardPage() {
   const [dragToast, setDragToast] = useState<string | null>(null)
   const admin = isAdminUser(user)
   const fullAccess = hasFullAccess(user)
+  const workspace = workspaceForUser(user)
+  const chrome = workspaceChrome(workspace)
+  const pipelineDeals = useMemo(
+    () => extractPipelineDeals(prefs.conversations),
+    [prefs.conversations]
+  )
+  const connectedStreamPlatforms = useMemo(() => {
+    return (
+      Object.entries(prefs.podcast?.platforms || {}) as Array<
+        [StreamPlatformId, { connected?: boolean }]
+      >
+    )
+      .filter(([, p]) => p.connected)
+      .map(([id]) => id)
+  }, [prefs.podcast?.platforms])
+  const salesPrompt =
+    'Попитай за budget + decision maker. Предложи VoiceBridge демо на техния език.'
+  const battleCards = [
+    'Конкурент X няма live превод',
+    'ROI: −40% време за онбординг',
+    'Пилот за 14 дни без риск',
+  ]
+  const crmStatus = {
+    salesforce: (crmTick % 3 === 0
+      ? 'synced'
+      : crmTick % 3 === 1
+        ? 'syncing'
+        : 'idle') as 'synced' | 'syncing' | 'idle',
+    hubspot: (crmTick % 2 === 0 ? 'synced' : 'idle') as
+      | 'synced'
+      | 'syncing'
+      | 'idle',
+  }
+
+  useEffect(() => {
+    if (workspace !== 'business') return
+    const t = window.setInterval(() => setCrmTick((n) => n + 1), 8000)
+    return () => window.clearInterval(t)
+  }, [workspace])
+
+  // After hang-up: open the same conversation as chat (no new room)
+  useEffect(() => {
+    if (!hydrated) return
+    const params = new URLSearchParams(window.location.search)
+    const chat = params.get('chat')
+    const space = params.get('space')
+    const post = params.get('post') || undefined
+    if (space && prefs.conversations.some((c) => c.id === space)) {
+      setSocialView({ id: space, postId: post })
+      setTab('feed')
+      setThreadOpen(false)
+      window.history.replaceState({}, '', '/dashboard')
+      return
+    }
+    if (!chat) return
+    if (prefs.conversations.some((c) => c.id === chat)) {
+      setActiveId(chat)
+      setTab('chats')
+      setThreadOpen(true)
+    }
+    window.history.replaceState({}, '', '/dashboard')
+  }, [hydrated, prefs.conversations])
+
+  // Seed digest notifs for frequently engaged friends/pages (FB-like)
+  useEffect(() => {
+    if (!hydrated || !user?.id) return
+    try {
+      const key = `ov_digest_seed_${user.id}`
+      if (sessionStorage.getItem(key) === '1') return
+      sessionStorage.setItem(key, '1')
+      const top = topEngagedIds(5)
+      for (const id of top) {
+        const friend = prefs.subscribers.find((s) => s.id === id)
+        const space = prefs.conversations.find((c) => c.id === id)
+        if (friend) {
+          pushFeedNotification({
+            kind: 'digest',
+            title: `${friend.name.split(' ')[0]} е активен`,
+            body: 'Често разглеждаш публикациите му — виж новостите в Начало.',
+          })
+        } else if (space) {
+          pushFeedNotification({
+            kind: 'digest',
+            title: `Новости · ${space.title}`,
+            body: 'Страница/група, която често отваряш, има активност.',
+            pageId: space.id,
+          })
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, user?.id])
+
+  function openThread(
+    id: string,
+    nextTab?: 'chats' | 'rooms' | 'feed' | 'subscribers' | 'blocked'
+  ) {
+    setActiveId(id)
+    if (nextTab && nextTab !== 'feed') setTab(nextTab)
+    else if (nextTab === 'feed') setTab('feed')
+    setThreadOpen(true)
+  }
+
+  function closeThread() {
+    setThreadOpen(false)
+  }
+
+  // Stripe paid-content unlock return
+  useEffect(() => {
+    if (!hydrated) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('paid') !== 'success') return
+    const sessionId = params.get('session_id')
+    const contentHint = params.get('content')
+    window.history.replaceState({}, '', '/dashboard')
+    void (async () => {
+      try {
+        if (sessionId) {
+          const res = await fetch(
+            `/api/stripe/paid-content?session_id=${encodeURIComponent(sessionId)}`,
+            { credentials: 'include' }
+          )
+          const data = (await res.json()) as {
+            unlocked?: boolean
+            contentId?: string
+          }
+          if (data.unlocked && data.contentId) {
+            updatePrefs((current) => ({
+              paidUnlocks: [
+                data.contentId!,
+                ...(current.paidUnlocks || []).filter(
+                  (id) => id !== data.contentId
+                ),
+              ],
+            }))
+            showDragToast('Платеното съдържание е отключено ✓')
+            return
+          }
+        }
+        if (contentHint) {
+          updatePrefs((current) => ({
+            paidUnlocks: [
+              contentHint,
+              ...(current.paidUnlocks || []).filter((id) => id !== contentHint),
+            ],
+          }))
+          showDragToast('Платеното съдържание е отключено ✓')
+        }
+      } catch {
+        showDragToast('Плащането е прието — обнови страницата ако трябва')
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated])
 
   useAmbientMusic({
     enabled: Boolean(prefs.music?.enabled),
@@ -141,6 +487,7 @@ export default function DashboardPage() {
     volume: prefs.music?.volume ?? 0.28,
     plan: user?.plan || 'free',
     duck: Boolean(prefs.music?.duckDuringSpeech),
+    source: prefs.music?.source || 'library',
   })
   const mood = getMood(prefs.profileSocial?.moodId)
   const snap = prefs.snapPlus || DEFAULT_SNAP_PLUS
@@ -151,25 +498,38 @@ export default function DashboardPage() {
     setMyStories(activeStories(prefs.profileSocial?.stories || []))
   }, [prefs.profileSocial?.stories])
 
+  const findMyCircleIds = prefs.profileSocial?.geoShare?.circleIds || []
+
   const mapNodes = useMemo(() => {
     if (!user) return []
+    const circle = new Set(findMyCircleIds)
+    const people = prefs.subscribers
+      .filter((s) => s.status !== 'blocked' && circle.has(s.id))
+      .slice(0, 16)
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        presence: s.presence || 'offline',
+        language: s.language,
+      }))
     return buildMapNodes({
       meName: user.displayName,
       meMood: prefs.profileSocial?.moodId || 'focused',
       mePresence: prefs.presence,
       meLocation: prefs.profileSocial?.locationLabel || 'Studio',
       showMe: Boolean(prefs.profileSocial?.showOnMap ?? true),
-      people: prefs.subscribers
-        .filter((s) => s.status !== 'blocked')
-        .slice(0, 6)
-        .map((s) => ({
-          id: s.id,
-          name: s.name,
-          presence: s.presence || 'offline',
-          language: s.language,
-        })),
-    })
-  }, [user, prefs.profileSocial, prefs.presence, prefs.subscribers])
+      people,
+    }).map((n) => ({
+      ...n,
+      inCircle: Boolean(n.isMe || circle.has(n.id)),
+    }))
+  }, [
+    user,
+    prefs.profileSocial,
+    prefs.presence,
+    prefs.subscribers,
+    findMyCircleIds,
+  ])
 
   const friendshipTarget = useMemo(() => {
     if (!friendshipId) return null
@@ -221,11 +581,69 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once
   }, [hydrated, router])
 
+  // Claim invite → Cloud Translation bonus for the referrer
   useEffect(() => {
-    if (!activeId && prefs.conversations[0]) {
-      setActiveId(prefs.conversations[0].id)
+    if (!hydrated || !user?.id) return
+    const result = claimReferralBonuses({
+      hostId: user.id,
+      currentBonus: prefs.translateBonusChars || 0,
+    })
+    if (!result.claimed) return
+    updatePrefs((current) => ({
+      translateBonusChars: result.bonus,
+      referralInvitesClaimed:
+        (current.referralInvitesClaimed || 0) + result.claimed,
+    }))
+    showDragToast(
+      `Бонус превод +${bonusLabel(result.claimed * REFERRAL_BONUS_CHARS)} · ${result.claimed} покани`
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, user?.id])
+
+  // Remember last paid/active plan → open that workspace next login
+  useEffect(() => {
+    if (!hydrated || !user) return
+    const startup = resolveStartupPlan(user)
+    if (startup !== user.plan && getUnlockedPlans(user).includes(startup)) {
+      updatePrefs((current) => ({
+        user: applyAdminGrantsToUser(
+          withUnlockedPlan(user, startup, true),
+          current.adminPlanGrants
+        ),
+      }))
+      saveLastActivePlan(startup)
+    } else {
+      saveLastActivePlan(user.plan)
     }
-  }, [prefs.conversations, activeId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, user?.id])
+
+  // One-time install bonus (PWA / desktop installed)
+  useEffect(() => {
+    if (!hydrated || !user?.id) return
+
+    const tryClaim = () => {
+      if (!isStandaloneDisplay()) return
+      let granted = false
+      updatePrefs((current) => {
+        const next = claimInstallBonus(current.translateBonusChars || 0)
+        if (next == null) return {}
+        granted = true
+        return { translateBonusChars: next }
+      })
+      if (granted) {
+        showDragToast(
+          `Бонус за инсталация +${bonusLabel(INSTALL_BONUS_CHARS)} Cloud`
+        )
+      }
+    }
+
+    tryClaim()
+    const onInstalled = () => tryClaim()
+    window.addEventListener('appinstalled', onInstalled)
+    return () => window.removeEventListener('appinstalled', onInstalled)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, user?.id])
 
   const conversations = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -233,32 +651,113 @@ export default function DashboardPage() {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
       return b.updatedAt.localeCompare(a.updatedAt)
     })
+
+    // Global privacy: only rooms/groups you're in (or public pages)
+    if (user?.id) {
+      list = list.filter((c) => canSeeConversation(c, user.id))
+    }
+
+    // Drag-to-invite targets rooms; otherwise respect Чатове / Стаи tab
+    if (dragSubId) {
+      list = list.filter((c) => conversationSpace(c) === 'room')
+    } else if (tab === 'rooms') {
+      list = list.filter((c) => conversationSpace(c) === 'room')
+    } else if (tab === 'chats') {
+      list = list.filter((c) => conversationSpace(c) === 'chat')
+    }
+
     if (inboxFilter === 'archived') {
       list = list.filter((c) => c.archived)
     } else {
       list = list.filter((c) => !c.archived)
       if (inboxFilter === 'unread') list = list.filter((c) => c.unread > 0)
-      if (inboxFilter === 'groups') list = list.filter((c) => c.isGroup)
+      if (inboxFilter === 'live')
+        list = list.filter((c) => c.sessionOpen !== false)
     }
     if (!q) return list
     return list.filter((item) => item.title.toLowerCase().includes(q))
-  }, [prefs.conversations, query, inboxFilter])
+  }, [prefs.conversations, query, inboxFilter, tab, dragSubId, user?.id])
 
   const active = prefs.conversations.find((item) => item.id === activeId)
+  const myProfilePage = useMemo(
+    () =>
+      prefs.conversations.find(
+        (c) =>
+          c.spaceFormat === 'page' &&
+          c.adminUserId === user?.id &&
+          c.title.toLowerCase().includes('страница')
+      ) ||
+      prefs.conversations.find(
+        (c) => c.spaceFormat === 'page' && c.adminUserId === user?.id
+      ),
+    [prefs.conversations, user?.id]
+  )
   const subscribers = prefs.subscribers.filter((sub) => sub.status !== 'blocked')
 
   function patchConversation(id: string, patch: Partial<Conversation>) {
-    updatePrefs({
-      conversations: prefs.conversations.map((item) =>
+    updatePrefs((current) => ({
+      conversations: current.conversations.map((item) =>
         item.id === id ? { ...item, ...patch } : item
       ),
-    })
+    }))
+  }
+
+  function saveAiRoom(aiRoom: AiRoomSaved) {
+    const plan: PlanId = isAdminUser(user) ? 'podcast' : user?.plan || 'free'
+    if (!canSaveAiRoom(plan, (prefs.aiRooms || []).length)) {
+      showDragToast('Лимитът за AI стаи е изчерпан')
+      return
+    }
+    updatePrefs((current) => ({
+      aiRooms: capAiRoomsForPlan([aiRoom, ...(current.aiRooms || [])], plan),
+    }))
+    showDragToast('AI стая запазена')
+  }
+
+  async function enterLiveRoom(roomId: string, video: boolean) {
+    const conv = prefs.conversations.find((c) => c.id === roomId)
+    const liveCount =
+      (conv?.members.length || 0) + (conv?.activeGuestIds?.length || 0)
+    if (roomIsFull(liveCount, user?.plan)) {
+      showDragToast(
+        `Стаята е пълна · ${roomCapacityLabel(user?.plan)}`
+      )
+      return
+    }
+    openThread(
+      roomId,
+      conv && conversationSpace(conv) === 'chat' ? 'chats' : 'rooms'
+    )
+    patchConversation(roomId, { sessionOpen: true })
+    if (
+      isClientBackendEnabled() &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        roomId
+      )
+    ) {
+      try {
+        await fetch(`/api/rooms/${roomId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ session_open: true }),
+        })
+      } catch {
+        // local open still works
+      }
+    }
+    // Same conversation/room — voice uses video=0, video uses video=1
+    router.push(
+      video ? `/room/${roomId}?video=1` : `/room/${roomId}?video=0`
+    )
   }
 
   function appendMessage(
-    partial: Omit<ConversationMessage, 'id' | 'createdAt' | 'fromMe' | 'status'>
+    partial: Omit<ConversationMessage, 'id' | 'createdAt' | 'fromMe' | 'status'>,
+    conversationId?: string
   ) {
-    if (!active) return
+    const targetId = conversationId || active?.id
+    if (!targetId) return
     const msg: ConversationMessage = {
       id: `msg_${Date.now()}`,
       fromMe: true,
@@ -266,75 +765,177 @@ export default function DashboardPage() {
       status: 'sent',
       ...partial,
     }
-    patchConversation(active.id, {
-      lastMessage: msg.text,
-      updatedAt: msg.createdAt,
-      unread: 0,
-      messages: [...active.messages, msg],
-    })
-    const contactKey = active.members[0]?.id || active.id
-    const prev = ensureFriendship(snap, contactKey)
-    updatePrefs({
-      snapPlus: bumpFriendship(snap, contactKey, {
-        messagesExchanged: prev.messagesExchanged + 1,
-        lastInteractionAt: msg.createdAt,
-        streakDays: Math.max(prev.streakDays, 1),
-        languagesUsed: Array.from(
-          new Set([
-            ...prev.languagesUsed,
-            user?.nativeLanguage || 'bg',
-            active.members[0]?.language || 'en',
-          ])
+    updatePrefs((current) => {
+      const conv = current.conversations.find((c) => c.id === targetId)
+      if (!conv) return {}
+      const contactKey = conv.members[0]?.id || conv.id
+      const prev = ensureFriendship(current.snapPlus, contactKey)
+      return {
+        conversations: current.conversations.map((item) =>
+          item.id === targetId
+            ? {
+                ...item,
+                lastMessage: msg.text,
+                updatedAt: msg.createdAt,
+                unread: 0,
+                messages: [...item.messages, msg],
+              }
+            : item
         ),
-      }),
+        snapPlus: bumpFriendship(current.snapPlus, contactKey, {
+          messagesExchanged: prev.messagesExchanged + 1,
+          lastInteractionAt: msg.createdAt,
+          streakDays: Math.max(prev.streakDays, 1),
+          languagesUsed: Array.from(
+            new Set([
+              ...prev.languagesUsed,
+              current.user?.nativeLanguage || 'bg',
+              conv.members[0]?.language || 'en',
+            ])
+          ),
+        }),
+      }
     })
   }
 
   function patchSnap(patch: Partial<typeof snap>) {
-    updatePrefs({ snapPlus: { ...snap, ...patch } })
+    updatePrefs((current) => ({
+      snapPlus: { ...current.snapPlus, ...patch },
+    }))
   }
 
   const liveOnAir = prefs.presence === 'in_studio' || prefs.presence === 'in_call'
 
-  function toggleLiveOnAir() {
+  async function toggleLiveOnAir() {
     if (!user || !activeId) return
     if (liveOnAir) {
-      updatePrefs({ presence: 'online' })
-      if (active) {
-        appendMessage({ text: '⚫ OFF AIR — предаването приключи' })
-      }
+      recordLiveStop()
+      updatePrefs((current) => {
+        if (!active) return { presence: 'online' }
+        const msg: ConversationMessage = {
+          id: `msg_${Date.now()}`,
+          fromMe: true,
+          text: '⚫ OFF AIR — предаването приключи',
+          createdAt: new Date().toISOString(),
+          status: 'sent',
+        }
+        return {
+          presence: 'online',
+          conversations: current.conversations.map((item) =>
+            item.id === active.id
+              ? {
+                  ...item,
+                  lastMessage: msg.text,
+                  updatedAt: msg.createdAt,
+                  messages: [...item.messages, msg],
+                }
+              : item
+          ),
+        }
+      })
       showDragToast('OFF AIR')
       return
     }
+
+    const gate = recordLiveStart(user.plan)
+    if (!gate.ok) {
+      showDragToast(gate.reason || 'Лимит за live')
+      return
+    }
+    showDragToast(formatLiveQuotaLabel(user.plan))
+
+    let roomTargetId = activeId
+    // LiveKit needs a server UUID room — migrate local chats first
+    if (
+      isClientBackendEnabled() &&
+      !/^[0-9a-f-]{36}$/i.test(roomTargetId) &&
+      active
+    ) {
+      try {
+        const res = await fetch('/api/rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            title: active.title || 'Live room',
+            channel: 'both',
+          }),
+        })
+        const data = (await res.json()) as {
+          room?: { id: string }
+          error?: string
+        }
+        if (!res.ok || !data.room?.id) {
+          showDragToast(data.error || 'Неуспешен Live — стаята не се създаде')
+          return
+        }
+        const oldId = roomTargetId
+        roomTargetId = data.room.id
+        updatePrefs((current) => ({
+          conversations: current.conversations.map((c) =>
+            c.id === oldId ? { ...c, id: roomTargetId, sessionOpen: true } : c
+          ),
+          invites: (current.invites || []).map((i) =>
+            i.conversationId === oldId
+              ? { ...i, conversationId: roomTargetId }
+              : i
+          ),
+        }))
+        openThread(roomTargetId, 'rooms')
+      } catch {
+        showDragToast('Неуспешен Live — провери връзката')
+        return
+      }
+    }
+
     const story = createStory({
       type: 'text',
       text: '🔴 ON AIR · на живо в OmniVoice',
       audience: 'public',
     })
-    const social = prefs.profileSocial || {
-      moodId: 'focused' as const,
-      bio: '',
-      locationLabel: '',
-      streakDays: 0,
-      stories: [] as ReturnType<typeof createStory>[],
-      showOnMap: true,
-      publicProfile: true,
-    }
-    updatePrefs({
-      presence: 'in_studio',
-      profileSocial: {
-        ...social,
-        stories: [story, ...social.stories],
-        streakDays: Math.max(social.streakDays, 1),
-      },
+    const liveRoomId = roomTargetId
+    updatePrefs((current) => {
+      const social = current.profileSocial || {
+        moodId: 'focused' as const,
+        bio: '',
+        locationLabel: '',
+        streakDays: 0,
+        stories: [] as ReturnType<typeof createStory>[],
+        showOnMap: true,
+        publicProfile: true,
+      }
+      const onAirMsg: ConversationMessage = {
+        id: `msg_${Date.now()}`,
+        fromMe: true,
+        text: '🔴 ON AIR — предавам на живо',
+        createdAt: new Date().toISOString(),
+        status: 'sent',
+      }
+      return {
+        presence: 'in_studio',
+        profileSocial: {
+          ...social,
+          stories: [story, ...social.stories],
+          streakDays: Math.max(social.streakDays, 1),
+        },
+        conversations: current.conversations.map((item) =>
+          item.id === liveRoomId
+            ? {
+                ...item,
+                sessionOpen: true,
+                lastMessage: onAirMsg.text,
+                updatedAt: onAirMsg.createdAt,
+                messages: [...item.messages, onAirMsg],
+              }
+            : item
+        ),
+      }
     })
-    setMyStories(activeStories([story, ...social.stories]))
-    if (active) {
-      appendMessage({ text: '🔴 ON AIR — предавам на живо' })
-      patchConversation(active.id, { sessionOpen: true })
-    }
+    setMyStories(
+      activeStories([story, ...(prefs.profileSocial?.stories || [])])
+    )
     showDragToast('ON AIR · влизаш в стаята')
-    router.push(`/room/${activeId}?video=1`)
+    router.push(`/room/${liveRoomId}?video=1`)
   }
 
   function submitDealFromStory() {
@@ -382,21 +983,308 @@ export default function DashboardPage() {
     })
   }
 
-  function startConversationFromSubscriber(subId: string) {
+  function toggleFollowPage(pageId: string) {
+    if (!user) return
+    const page = prefs.conversations.find((c) => c.id === pageId)
+    if (!page) return
+    const was =
+      (page.followerIds || []).includes(user.id) ||
+      page.members.some((m) => m.id === user.id)
+    const policy = page.followPolicy || 'public'
+    const asGroup = isGroupSpace(page) && page.spaceFormat === 'group'
+
+    if (was) {
+      updatePrefs((current) => ({
+        conversations: current.conversations.map((c) => {
+          if (c.id !== pageId) return c
+          return {
+            ...c,
+            followerIds: (c.followerIds || []).filter((id) => id !== user.id),
+            members: c.members.filter((m) => m.id !== user.id),
+          }
+        }),
+      }))
+      showDragToast(asGroup ? 'Напусна групата' : 'Спря да следваш')
+      return
+    }
+
+    if (policy === 'public') {
+      updatePrefs((current) => ({
+        conversations: current.conversations.map((c) => {
+          if (c.id !== pageId) return c
+          const followers = new Set(c.followerIds || [])
+          followers.add(user.id)
+          const members = c.members.some((m) => m.id === user.id)
+            ? c.members
+            : asGroup
+              ? [
+                  ...c.members,
+                  {
+                    id: user.id,
+                    name: user.displayName || user.fullName,
+                    language: user.nativeLanguage || 'bg',
+                    presence: 'online' as const,
+                  },
+                ]
+              : c.members
+          return { ...c, followerIds: [...followers], members }
+        }),
+      }))
+      showDragToast(asGroup ? 'Вече си член' : 'Вече следваш страницата')
+      return
+    }
+
+    // approval / invite — pending request for creator
+    if (hasPendingFollowOrJoin(page, user.id)) {
+      showDragToast('Заявката вече чака одобрение')
+      return
+    }
+    const req = makeFollowOrJoinRequest({
+      userId: user.id,
+      name: user.displayName || user.fullName,
+      language: user.nativeLanguage || 'bg',
+    })
+    updatePrefs((current) => ({
+      conversations: current.conversations.map((c) =>
+        c.id !== pageId
+          ? c
+          : {
+              ...c,
+              joinRequests: [...(c.joinRequests || []), req],
+            }
+      ),
+    }))
+    pushFeedNotification({
+      kind: asGroup ? 'join' : 'follow',
+      title: asGroup ? 'Заявка за група' : 'Заявка за follow',
+      body: `Изпратена към „${page.title}“ — чака одобрение от създателя.`,
+      pageId,
+    })
+    showDragToast(
+      asGroup
+        ? 'Заявката за членство е изпратена'
+        : 'Заявката за следване е изпратена'
+    )
+  }
+
+  function openSocialSpace(id: string, postId?: string) {
+    setSocialView({ id, postId })
+    setTab('feed')
+    setThreadOpen(false)
+  }
+
+  function acceptSpaceRequest(spaceId: string, requestId: string) {
+    if (!user) return
+    updatePrefs((current) => ({
+      conversations: current.conversations.map((c) => {
+        if (c.id !== spaceId) return c
+        const req = (c.joinRequests || []).find((j) => j.id === requestId)
+        if (!req) return c
+        const followers = new Set(c.followerIds || [])
+        followers.add(req.subscriberId)
+        const members = c.members.some((m) => m.id === req.subscriberId)
+          ? c.members
+          : [
+              ...c.members,
+              {
+                id: req.subscriberId,
+                name: req.name,
+                language: req.language || 'bg',
+                presence: 'offline' as const,
+              },
+            ]
+        return {
+          ...c,
+          followerIds: [...followers],
+          members,
+          joinRequests: (c.joinRequests || []).map((j) =>
+            j.id === requestId ? { ...j, status: 'accepted' as const } : j
+          ),
+        }
+      }),
+    }))
+    showDragToast('Заявката е приета')
+  }
+
+  function patchMeetMatch(
+    patch: Partial<typeof DEFAULT_MEET_MATCH> | ((s: typeof DEFAULT_MEET_MATCH) => typeof DEFAULT_MEET_MATCH)
+  ) {
+    updatePrefs((current) => {
+      const base = current.meetMatch || DEFAULT_MEET_MATCH
+      const next = typeof patch === 'function' ? patch(base) : { ...base, ...patch }
+      return { meetMatch: next }
+    })
+  }
+
+  function handleMeetRoomSend(peerId: string) {
+    patchMeetMatch((s) => ({
+      ...s,
+      rooms: bumpMeetStreak(s, peerId),
+    }))
+  }
+
+  function handleMeetPatchRoom(peerId: string, patch: Partial<MeetRoomMeta>) {
+    patchMeetMatch((s) => {
+      const prev = s.rooms?.[peerId] || {
+        streakDays: 0,
+        lastChatDay: null,
+        quiet: false,
+        interests: [],
+      }
+      return {
+        ...s,
+        rooms: { ...(s.rooms || {}), [peerId]: { ...prev, ...patch } },
+      }
+    })
+  }
+
+  function handleMeetUnmatch(peerId: string) {
+    const convId = meetConversationId(peerId)
+    patchMeetMatch((s) => ({
+      ...s,
+      matchedIds: s.matchedIds.filter((id) => id !== peerId),
+      unmatchedIds: [...new Set([...(s.unmatchedIds || []), peerId])],
+    }))
+    updatePrefs((current) => ({
+      conversations: current.conversations.filter((c) => c.id !== convId),
+      subscribers: current.subscribers.map((s) =>
+        s.id === peerId ? { ...s, status: 'blocked' as const } : s
+      ),
+    }))
+    if (activeId === convId) {
+      setActiveId('')
+      setThreadOpen(false)
+    }
+    setMeetRoomOpen(false)
+    showDragToast('Мачът е прекратен (Unmatch)')
+  }
+
+  function handleMeetReport(peerId: string, reason: string) {
+    patchMeetMatch((s) => ({
+      ...s,
+      reportedIds: [...new Set([...(s.reportedIds || []), peerId])],
+    }))
+    showDragToast(`Докладвано · ${reason.slice(0, 40)}`)
+  }
+
+  function handleMeetLike(candidate: MeetMatchCandidate) {
+    // Always send chat invite (add contact + pending chat)
+    const already = prefs.subscribers.some((s) => s.id === candidate.id)
+    if (!already) {
+      updatePrefs((current) => ({
+        subscribers: [
+          {
+            id: candidate.id,
+            name: candidate.displayName,
+            email: '',
+            phone: '',
+            language: candidate.language,
+            status: 'invited' as const,
+            plan: 'free' as const,
+            presence: 'online' as const,
+            avatarDataUrl: candidate.photoUrl,
+            source: 'manual' as const,
+          },
+          ...current.subscribers,
+        ],
+      }))
+    }
+
+    if (candidate.likesYou) {
+      // Mutual match — special lighthearted room + gifts + free translate
+      patchMeetMatch((s) => ({
+        ...s,
+        likedIds: [...s.likedIds, candidate.id],
+        matchedIds: [...s.matchedIds, candidate.id],
+      }))
+      const now = new Date().toISOString()
+      const convId = meetConversationId(candidate.id)
+      const existing = prefs.conversations.find((c) => c.id === convId)
+      if (!existing) {
+        const conv: Conversation = {
+          id: convId,
+          title: candidate.displayName,
+          isGroup: false,
+          space: 'chat',
+          roomKind: 'meet',
+          members: [
+            {
+              id: candidate.id,
+              name: candidate.displayName,
+              language: candidate.language,
+              presence: 'online',
+              avatarDataUrl: candidate.photoUrl,
+            },
+          ],
+          lastMessage: 'Мач! Специална стая е отворена 💛',
+          updatedAt: now,
+          unread: 1,
+          pinned: false,
+          muted: false,
+          messages: [
+            {
+              id: `msg_${Date.now()}`,
+              fromMe: false,
+              text: `Здравей! Харесахме се в Случайни запознанства 💫 Да започнем на леко?`,
+              createdAt: now,
+              status: 'delivered',
+            },
+          ],
+          saveChat: true,
+          disappearAfter: 'off',
+          sessionOpen: true,
+          activeGuestIds: [],
+          joinRequests: [],
+        }
+        updatePrefs((current) => ({
+          conversations: [conv, ...current.conversations],
+          subscribers: current.subscribers.map((s) =>
+            s.id === candidate.id ? { ...s, status: 'active' as const } : s
+          ),
+        }))
+      } else if (existing.roomKind !== 'meet') {
+        updatePrefs((current) => ({
+          conversations: current.conversations.map((c) =>
+            c.id === convId ? { ...c, roomKind: 'meet' as const } : c
+          ),
+        }))
+      }
+      openThread(convId, 'chats')
+      setMeetMatchOpen(false)
+      setMeetRoomOpen(true)
+      showDragToast(`Мач с ${candidate.displayName} · стаята е отворена`)
+      return
+    }
+
+    // Invite sent — they reject (don't like you back)
+    patchMeetMatch((s) => ({
+      ...s,
+      likedIds: [...s.likedIds, candidate.id],
+      rejectedIds: [...s.rejectedIds, candidate.id],
+    }))
+    showDragToast(
+      `Покана към ${candidate.displayName} · отхвърли я (не те харесва)`
+    )
+  }
+
+  function startConversationFromSubscriber(subId: string): Conversation | undefined {
     const sub = prefs.subscribers.find((item) => item.id === subId)
-    if (!sub) return
+    if (!sub) return undefined
     const existing = prefs.conversations.find(
-      (conv) => !conv.isGroup && conv.title === sub.name
+      (conv) =>
+        conversationSpace(conv) === 'chat' &&
+        !conv.isGroup &&
+        conv.title === sub.name
     )
     if (existing) {
-      setActiveId(existing.id)
-      setTab('chats')
-      return
+      openThread(existing.id, 'chats')
+      return existing
     }
     const conv: Conversation = {
       id: `conv_${Date.now()}`,
       title: sub.name,
       isGroup: false,
+      space: 'chat',
       members: [
         {
           id: sub.id,
@@ -407,7 +1295,7 @@ export default function DashboardPage() {
         },
       ],
       lastMessage: 'Нов разговор',
-      updatedAt: '2026-10-19T15:00:00.000Z',
+      updatedAt: new Date().toISOString(),
       unread: 0,
       pinned: false,
       muted: false,
@@ -416,15 +1304,68 @@ export default function DashboardPage() {
       sessionOpen: true,
       activeGuestIds: [],
       messages: [],
+      joinRequests: [],
     }
-    updatePrefs({ conversations: [conv, ...prefs.conversations] })
-    setActiveId(conv.id)
-    setTab('chats')
+    updatePrefs((current) => ({
+      conversations: [conv, ...current.conversations],
+    }))
+    openThread(conv.id, 'chats')
+    return conv
   }
 
   function showDragToast(text: string) {
     setDragToast(text)
     window.setTimeout(() => setDragToast(null), 2200)
+  }
+
+  function openBusinessIntelPicker() {
+    if (workspace !== 'business' || prefs.experience?.callRecap === false) {
+      showDragToast('Business Intel е изключен в настройките')
+      return
+    }
+    setRecapOpen(true)
+    setIntelSelecting(true)
+    setIntelLoading(false)
+    setIntelError(null)
+    setIntelData(null)
+  }
+
+  async function runDashboardIntel(options: BusinessIntelOptionId[]) {
+    if (workspace !== 'business' || !options.length) return
+    setIntelOptions(options)
+    setIntelSelecting(false)
+    setRecapOpen(true)
+    setIntelLoading(true)
+    setIntelError(null)
+    const { messages } = collectIntelSources({
+      chatMessages: (active?.messages || []).map((m) => ({
+        fromMe: m.fromMe,
+        text: m.text,
+        translatedText: m.translatedText,
+        createdAt: m.createdAt,
+        kind: m.kind,
+      })),
+      youName: user?.displayName || 'Ти',
+      peerName: active?.members[0]?.name,
+    })
+    try {
+      const intel = await fetchBusinessIntel({
+        messages,
+        transcript: [],
+        sourceLang: getLanguage(user?.nativeLanguage || 'bg').name,
+        targetLang: getLanguage(prefs.voice?.targetLanguage || 'en').name,
+        minutes: Math.max(1, Math.round((active?.messages.length || 1) / 4)),
+        context: active?.title || 'Business chat',
+        options,
+        contractComposeFrom:
+          prefs.experience.businessRoom?.contractComposeFrom,
+      })
+      setIntelData(intel)
+    } catch (err) {
+      setIntelError(err instanceof Error ? err.message : 'Intel failed')
+    } finally {
+      setIntelLoading(false)
+    }
   }
 
   function addSubscriberToConversation(subId: string, conversationId: string) {
@@ -433,9 +1374,15 @@ export default function DashboardPage() {
     if (!sub || !conv) return
 
     if (conv.members.some((m) => m.id === sub.id)) {
-      setActiveId(conversationId)
-      setTab('chats')
+      openThread(conversationId, 'rooms')
       showDragToast(`${sub.name} вече е в стаята`)
+      return
+    }
+
+    if (roomIsFull(conv.members.length, user?.plan)) {
+      showDragToast(
+        `Лимит ${maxLiveParticipants(user?.plan)} души · ${roomCapacityLabel(user?.plan)}`
+      )
       return
     }
 
@@ -450,13 +1397,14 @@ export default function DashboardPage() {
     const becomesGroup = nextMembers.length > 1 || conv.isGroup
     const now = new Date().toISOString()
 
-    updatePrefs({
-      conversations: prefs.conversations.map((item) =>
+    updatePrefs((current) => ({
+      conversations: current.conversations.map((item) =>
         item.id === conversationId
           ? {
               ...item,
               members: nextMembers,
               isGroup: becomesGroup,
+              space: 'room' as const,
               lastMessage: `${sub.name} е добавен/а в стаята`,
               updatedAt: now,
               messages: [
@@ -472,14 +1420,15 @@ export default function DashboardPage() {
             }
           : item
       ),
-    })
-    setActiveId(conversationId)
-    setTab('chats')
+    }))
+    openThread(conversationId, 'rooms')
     showDragToast(`${sub.name} → ${conv.title}`)
   }
 
   function onSubscriberDragStart(subId: string, e: DragEvent) {
     setDragSubId(subId)
+    setTab('rooms')
+    setThreadOpen(false)
     e.dataTransfer.setData('text/omnivvoice-subscriber', subId)
     e.dataTransfer.effectAllowed = 'copy'
   }
@@ -520,8 +1469,8 @@ export default function DashboardPage() {
   function blockSubscriber(subId: string) {
     const sub = prefs.subscribers.find((item) => item.id === subId)
     if (!sub) return
-    updatePrefs({
-      subscribers: prefs.subscribers.map((item) =>
+    updatePrefs((current) => ({
+      subscribers: current.subscribers.map((item) =>
         item.id === subId ? { ...item, status: 'blocked' } : item
       ),
       blocked: [
@@ -531,39 +1480,120 @@ export default function DashboardPage() {
           reason: 'Ръчно блокиран',
           blockedAt: new Date().toISOString(),
         },
-        ...prefs.blocked,
+        ...current.blocked,
       ],
-    })
+    }))
   }
 
   function removeSubscriber(subId: string) {
     if (!window.confirm('Премахни абоната от списъка?')) return
-    updatePrefs({
-      subscribers: prefs.subscribers.filter((item) => item.id !== subId),
-    })
+    updatePrefs((current) => ({
+      subscribers: current.subscribers.filter((item) => item.id !== subId),
+    }))
+  }
+
+  function addFriendFromHit(hit: FriendHit) {
+    const key = hit.displayName.trim().toLowerCase()
+    if (
+      prefs.subscribers.some(
+        (s) =>
+          s.name.trim().toLowerCase() === key ||
+          (hit.email && s.email && s.email === hit.email) ||
+          s.id === hit.id
+      )
+    ) {
+      showDragToast(`${hit.displayName} вече е приятел`)
+      return
+    }
+    updatePrefs((current) => ({
+      subscribers: [
+        {
+          id: hit.source === 'server' ? hit.id : `sub_${Date.now()}`,
+          name: hit.displayName,
+          email: hit.email || '',
+          phone: '',
+          language: hit.language || current.user?.nativeLanguage || 'bg',
+          status: 'active' as const,
+          plan: (hit.plan as PlanId) || 'free',
+          presence: 'online' as const,
+          avatarDataUrl: hit.avatarUrl || undefined,
+          source: 'manual' as const,
+        },
+        ...current.subscribers,
+      ],
+    }))
+    showDragToast(`Добавен: ${hit.displayName}`)
+  }
+
+  /** Normal/free and all plans: add contact without checkout */
+  function addSubscriberManual() {
+    const name = newSubName.trim()
+    if (!name) return
+    const contact = newSubContact.trim()
+    const key = name.toLowerCase()
+    if (
+      prefs.subscribers.some((s) => s.name.trim().toLowerCase() === key)
+    ) {
+      showDragToast(`${name} вече е в списъка`)
+      return
+    }
+    updatePrefs((current) => ({
+      subscribers: [
+        {
+          id: `sub_${Date.now()}`,
+          name,
+          email: contact.includes('@') ? contact : '',
+          phone: contact.includes('@') ? '' : contact,
+          language: current.user?.nativeLanguage || 'bg',
+          status: 'active' as const,
+          plan: 'free' as const,
+          presence: 'offline' as const,
+          source: 'manual' as const,
+        },
+        ...current.subscribers,
+      ],
+    }))
+    setNewSubName('')
+    setNewSubContact('')
+    showDragToast(`${name} е добавен/а в абонати`)
   }
 
   async function deleteRoom(roomId: string) {
     if (!window.confirm('Изтрий стаята завинаги? Това маха чата и поканите.')) {
       return
     }
-    if (isClientBackendEnabled() && /^[0-9a-f-]{36}$/i.test(roomId)) {
-      const res = await fetch(`/api/rooms/${roomId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string }
-        window.alert(data.error || 'Неуспешно изтриване от сървъра')
-        return
+    try {
+      if (isClientBackendEnabled() && /^[0-9a-f-]{36}$/i.test(roomId)) {
+        const res = await fetch(`/api/rooms/${roomId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as {
+            error?: string
+          }
+          window.alert(data.error || 'Неуспешно изтриване от сървъра')
+          return
+        }
       }
+      updatePrefs((current) => {
+        const next = current.conversations.filter((c) => c.id !== roomId)
+        if (activeId === roomId) {
+          setActiveId('')
+          setThreadOpen(false)
+        }
+        return {
+          conversations: next,
+          invites: (current.invites || []).filter(
+            (i) => i.conversationId !== roomId
+          ),
+        }
+      })
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Неуспешно изтриване'
+      )
     }
-    const next = prefs.conversations.filter((c) => c.id !== roomId)
-    updatePrefs({
-      conversations: next,
-      invites: (prefs.invites || []).filter((i) => i.conversationId !== roomId),
-    })
-    if (activeId === roomId) setActiveId(next[0]?.id || '')
   }
 
   async function renameRoom(roomId: string) {
@@ -573,24 +1603,49 @@ export default function DashboardPage() {
     if (!title?.trim()) return
     patchConversation(roomId, { title: title.trim() })
     if (isClientBackendEnabled() && /^[0-9a-f-]{36}$/i.test(roomId)) {
-      await fetch(`/api/rooms/${roomId}`, {
+      const res = await fetch(`/api/rooms/${roomId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ title: title.trim() }),
       })
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string }
+        showDragToast(data.error || 'Преименуването на сървъра не успя')
+      }
     }
   }
 
   async function endRoomSession(roomId: string) {
-    patchConversation(roomId, { sessionOpen: false, activeGuestIds: [] })
+    updatePrefs((current) => ({
+      conversations: current.conversations.map((item) =>
+        item.id === roomId
+          ? {
+              ...item,
+              sessionOpen: false,
+              activeGuestIds: [],
+              members: item.members.filter((m) => !m.id.startsWith('guest_')),
+              lastMessage: 'Хостът приключи разговора',
+              joinRequests: (item.joinRequests || []).map((r) =>
+                r.status === 'pending'
+                  ? { ...r, status: 'declined' as const }
+                  : r
+              ),
+            }
+          : item
+      ),
+    }))
     if (isClientBackendEnabled() && /^[0-9a-f-]{36}$/i.test(roomId)) {
-      await fetch(`/api/rooms/${roomId}`, {
+      const res = await fetch(`/api/rooms/${roomId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ session_open: false }),
       })
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string }
+        showDragToast(data.error || 'Сесията на сървъра не се затвори')
+      }
     }
   }
 
@@ -603,8 +1658,10 @@ export default function DashboardPage() {
         label: 'Отвори',
         icon: MessageCircle,
         onClick: () => {
-          setActiveId(roomId)
-          setTab('chats')
+          openThread(
+            roomId,
+            conversationSpace(conv) === 'room' ? 'rooms' : 'chats'
+          )
         },
       },
       {
@@ -614,10 +1671,16 @@ export default function DashboardPage() {
         onClick: () => setFriendshipId(roomId),
       },
       {
+        id: 'voice',
+        label: 'Гласово обаждане',
+        icon: Phone,
+        onClick: () => void enterLiveRoom(roomId, false),
+      },
+      {
         id: 'enter',
-        label: 'Влез в стаята',
+        label: 'Видео обаждане',
         icon: Video,
-        onClick: () => router.push(`/room/${roomId}?video=1`),
+        onClick: () => void enterLiveRoom(roomId, true),
       },
       {
         id: 'invite',
@@ -687,14 +1750,7 @@ export default function DashboardPage() {
       setActiveId(open.id)
       return open
     }
-    if (subId) {
-      startConversationFromSubscriber(subId)
-      return prefs.conversations.find(
-        (c) =>
-          !c.isGroup &&
-          c.title === prefs.subscribers.find((s) => s.id === subId)?.name
-      )
-    }
+    if (subId) return startConversationFromSubscriber(subId)
     return undefined
   }
 
@@ -853,11 +1909,8 @@ export default function DashboardPage() {
         label: 'Покани с линк',
         icon: Link2,
         onClick: () => {
-          startConversationFromSubscriber(subId)
-          const existing = prefs.conversations.find(
-            (c) => !c.isGroup && c.title === sub.name
-          )
-          void createInvite(subId, existing?.id)
+          const started = startConversationFromSubscriber(subId)
+          if (started) void createInvite(subId, started.id, started)
         },
       },
       {
@@ -865,11 +1918,8 @@ export default function DashboardPage() {
         label: 'Гласово обаждане',
         icon: Phone,
         onClick: () => {
-          startConversationFromSubscriber(subId)
-          const existing = prefs.conversations.find(
-            (c) => !c.isGroup && c.title === sub.name
-          )
-          if (existing) router.push(`/room/${existing.id}`)
+          const started = startConversationFromSubscriber(subId)
+          if (started) void enterLiveRoom(started.id, false)
         },
       },
       {
@@ -877,11 +1927,8 @@ export default function DashboardPage() {
         label: 'Видео обаждане',
         icon: Video,
         onClick: () => {
-          startConversationFromSubscriber(subId)
-          const existing = prefs.conversations.find(
-            (c) => !c.isGroup && c.title === sub.name
-          )
-          if (existing) router.push(`/room/${existing.id}?video=1`)
+          const started = startConversationFromSubscriber(subId)
+          if (started) void enterLiveRoom(started.id, true)
         },
       },
       { id: 'sep1', label: '', separator: true },
@@ -896,8 +1943,8 @@ export default function DashboardPage() {
         label: sub.status === 'paused' ? 'Активирай' : 'Пауза',
         icon: BellOff,
         onClick: () =>
-          updatePrefs({
-            subscribers: prefs.subscribers.map((s) =>
+          updatePrefs((current) => ({
+            subscribers: current.subscribers.map((s) =>
               s.id === subId
                 ? {
                     ...s,
@@ -905,7 +1952,7 @@ export default function DashboardPage() {
                   }
                 : s
             ),
-          }),
+          })),
       },
       { id: 'sep2', label: '', separator: true },
       {
@@ -930,7 +1977,6 @@ export default function DashboardPage() {
     setCreatingRoom(true)
     try {
       let roomId = `conv_${Date.now()}`
-      let inviteUrl: string | null = null
       let newInvite: InviteLink | null = null
       let usedBackend = false
 
@@ -959,73 +2005,113 @@ export default function DashboardPage() {
       }
 
       if (draft.allowGuests && draft.copyInvite) {
-        if (usedBackend) {
-          try {
-            const inv = await fetch('/api/invites', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                roomId,
-                createRoom: false,
-                label: `Покана · ${draft.title}`,
-                channel: draft.channel,
-                prefillLanguage: draft.guestLanguage,
-              }),
-            })
-            const invData = (await inv.json()) as {
-              url?: string
-              invite?: {
-                id: string
-                code: string
-                room_id: string
-                label: string
-              }
-            }
-            if (inv.ok && invData.url && invData.invite) {
-              inviteUrl = invData.url
-              newInvite = {
-                id: invData.invite.id,
-                code: invData.invite.code,
-                conversationId: invData.invite.room_id,
-                label: invData.invite.label,
-                channel: draft.channel,
-                prefillLanguage: draft.guestLanguage,
-                createdAt: new Date().toISOString(),
-                active: true,
-              }
-              void navigator.clipboard.writeText(invData.url).catch(() => undefined)
-              setInviteCopied(true)
-              window.setTimeout(() => setInviteCopied(false), 2000)
-            }
-          } catch {
-            // local invite below
-          }
-        }
-        if (!newInvite) {
-          const code = `inv_${Math.random().toString(36).slice(2, 8)}`
+        const invResult = await createServerGuestInvite({
+          roomId: usedBackend ? roomId : undefined,
+          roomTitle: draft.title,
+          label: `Покана · ${draft.title}`,
+          channel: draft.channel,
+          prefillLanguage: draft.guestLanguage,
+        })
+        if (!invResult.ok) {
+          showDragToast(invResult.error)
+        } else {
+          roomId = invResult.roomId
+          usedBackend = true
           newInvite = {
-            id: `invite_${Date.now()}`,
-            code,
-            conversationId: roomId,
-            label: `Покана · ${draft.title}`,
+            id: invResult.inviteId,
+            code: invResult.code,
+            conversationId: invResult.roomId,
+            label: invResult.label,
             channel: draft.channel,
             prefillLanguage: draft.guestLanguage,
             createdAt: new Date().toISOString(),
             active: true,
           }
-          inviteUrl = `${window.location.origin}/join?invite=${code}&conv=${roomId}&channel=${draft.channel}&lang=${draft.guestLanguage}`
-          void navigator.clipboard.writeText(inviteUrl).catch(() => undefined)
+          void navigator.clipboard
+            .writeText(invResult.url)
+            .catch(() => undefined)
           setInviteCopied(true)
           window.setTimeout(() => setInviteCopied(false), 2000)
         }
       }
 
+      if (draft.roomKind === 'watch') {
+        updatePrefs((current) => ({
+          podcast: {
+            ...current.podcast,
+            sessionMode: 'streaming',
+            streaming: {
+              ...current.podcast.streaming,
+              scene: 'watch_party',
+              watchTogetherLive: true,
+              watchTogetherCategory: 'series',
+              contentHint: 'series',
+            },
+          },
+        }))
+      }
+
+      if (draft.voiceBridgeRoom) {
+        const plate = pickAiRoomImage(
+          draft.voiceBridgePrompt || draft.title || 'cafe loft'
+        )
+        updatePrefs((current) => ({
+          room: {
+            ...current.room,
+            cutoutMode: 'contour',
+            virtualBackground: true,
+            customBackground: plate.imageUrl,
+          },
+          voice: {
+            ...current.voice,
+            targetLanguage:
+              draft.voiceBridgeTargetLang ||
+              draft.guestLanguage ||
+              current.voice.targetLanguage,
+          },
+        }))
+      }
+
       const now = new Date().toISOString()
+      if (draft.spaceFormat && ['page', 'business', 'podcast'].includes(draft.spaceFormat)) {
+        const gate = canCreateOwnedPage(
+          user,
+          prefs.conversations,
+          draft.spaceFormat as SpaceFormat
+        )
+        if (!gate.ok) {
+          showDragToast(gate.reason || 'Не може да се създаде страницата')
+          return
+        }
+      }
+
+      const format = draft.spaceFormat
       const conv: Conversation = {
         id: roomId,
         title: draft.title,
-        isGroup: draft.isGroup,
+        isGroup: true,
+        space: 'room',
+        roomKind: draft.roomKind || 'general',
+        communityKind: draft.communityKind,
+        adminUserId: user.id,
+        followPolicy: defaultFollowPolicy(format),
+        ...(format
+          ? {
+              spaceFormat: format,
+              interestTags: draft.interestTags || [],
+              allowCrossPlanFollow:
+                format === 'page' ||
+                format === 'business' ||
+                format === 'podcast',
+              followerIds: [],
+            }
+          : {
+              // Plain room / group — invite-only, not globally visible
+              spaceFormat: format || 'group',
+              interestTags: draft.interestTags || [],
+              allowCrossPlanFollow: false,
+              followerIds: [],
+            }),
         members: [],
         lastMessage: draft.allowGuests
           ? 'Стаята е готова · покани гости'
@@ -1050,37 +2136,60 @@ export default function DashboardPage() {
         joinRequests: [],
       }
 
-      updatePrefs({
+      const inviteSnapshot = newInvite
+      const savedAiPick = (prefs.aiRooms || []).find(
+        (r) => r.id === draft.studioRoomId
+      )
+      const isAiBuiltinPick = AI_BUILTIN_ROOMS.some(
+        (r) => r.id === draft.studioRoomId
+      )
+      updatePrefs((current) => ({
         room: {
-          ...prefs.room,
           studioRoomId: draft.studioRoomId,
+          // Saved AI rooms are remote URLs — resolved via customBackground
+          ...(savedAiPick
+            ? { customBackground: savedAiPick.imageUrl }
+            : isAiBuiltinPick
+              ? { customBackground: null }
+              : {}),
+          // AI virtual rooms keep contour cutout (default)
+          ...(savedAiPick || isAiBuiltinPick
+            ? { cutoutMode: 'contour' as const }
+            : {}),
           videoQuality: draft.videoQuality,
           waitingRoom: draft.waitingRoom,
           allowGuests: draft.allowGuests,
           knockToEnter: draft.waitingRoom,
-          customBackground: null,
         },
         voice: {
-          ...prefs.voice,
           targetLanguage: draft.guestLanguage,
         },
         conversations: [
           conv,
-          ...prefs.conversations.filter((c) => c.id !== roomId),
+          ...current.conversations.filter((c) => c.id !== roomId),
         ],
-        ...(newInvite
-          ? { invites: [newInvite, ...(prefs.invites || [])] }
+        ...(inviteSnapshot
+          ? { invites: [inviteSnapshot, ...(current.invites || [])] }
           : {}),
-      })
-      setActiveId(roomId)
-      setTab('chats')
+      }))
+      openThread(roomId, 'rooms')
       setInboxFilter('all')
       setCreateRoomOpen(false)
       showDragToast(
-        usedBackend
-          ? 'Стаята е създадена'
-          : 'Стаята е създадена (локално)'
+        newInvite
+          ? 'Стая готова · guest линкът е в клипборда'
+          : usedBackend
+            ? 'Стаята е създадена'
+            : 'Стаята е създадена (локално)'
       )
+      if (newInvite && typeof window !== 'undefined') {
+        setInviteShare({
+          url: guestInviteUrl(newInvite.code),
+          label: 'OmniVoice guest покана',
+          roomId,
+        })
+        showDragToast('Guest линк готов — сподели или копирай')
+      }
 
       if (draft.enterNow) {
         const video =
@@ -1097,110 +2206,134 @@ export default function DashboardPage() {
     }
   }
 
-  async function createInvite(forSubscriberId?: string, conversationId?: string) {
+  function invitePersonToApp(forName?: string) {
     if (!user) return
-    const targetId = conversationId || activeId
-    const target = prefs.conversations.find((item) => item.id === targetId)
-    const sub = forSubscriberId
-      ? prefs.subscribers.find((item) => item.id === forSubscriberId)
-      : undefined
+    const url = appInviteUrl({
+      hostId: user.id,
+      hostName: user.displayName || user.fullName || 'OmniVoice',
+    })
+    setInviteShare({
+      url,
+      label: forName
+        ? `Покана за ${forName} · OmniVoice`
+        : 'Покана към OmniVoice',
+    })
+    setInviteCopied(true)
+    window.setTimeout(() => setInviteCopied(false), 2200)
+    showDragToast('Линк готов — натисни Сподели или Копирай')
+  }
 
-    if (isClientBackendEnabled()) {
-      const res = await fetch('/api/invites', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          roomId: target && /^[0-9a-f-]{36}$/i.test(target.id) ? target.id : undefined,
-          createRoom: true,
-          roomTitle: target?.title || sub?.name || 'Guest room',
-          label: `Покана за ${target?.title || sub?.name || 'гост'}`,
-          channel: 'both',
-          prefillName: sub?.name,
-          prefillLanguage: sub?.language,
-        }),
+  async function createInvite(
+    forSubscriberId?: string,
+    conversationId?: string,
+    knownTarget?: Conversation
+  ) {
+    if (!user) return
+    try {
+      const targetId = conversationId || activeId
+      const target =
+        knownTarget ||
+        prefs.conversations.find((item) => item.id === targetId)
+      const sub = forSubscriberId
+        ? prefs.subscribers.find((item) => item.id === forSubscriberId)
+        : undefined
+
+      const result = await createServerGuestInvite({
+        roomId: target?.id,
+        roomTitle: target?.title || sub?.name || 'Guest room',
+        label: `Покана за ${target?.title || sub?.name || 'гост'}`,
+        channel: 'both',
+        prefillName: sub?.name,
+        prefillLanguage: sub?.language,
       })
-      const data = (await res.json()) as {
-        url?: string
-        error?: string
-        roomId?: string
-        invite?: { id: string; code: string; room_id: string; label: string }
-      }
-      if (!res.ok || !data.url || !data.invite) {
-        window.alert(data.error || 'Неуспешна покана — провери Supabase.')
+
+      if (!result.ok) {
+        window.alert(result.error)
         return
       }
+
+      if (result.migratedFrom && target) {
+        updatePrefs((current) => ({
+          conversations: current.conversations.map((c) =>
+            c.id === result.migratedFrom
+              ? {
+                  ...c,
+                  id: result.roomId,
+                  sessionOpen: true,
+                  space: 'room' as const,
+                }
+              : c
+          ),
+          invites: (current.invites || []).map((i) =>
+            i.conversationId === result.migratedFrom
+              ? { ...i, conversationId: result.roomId }
+              : i
+          ),
+        }))
+      }
+
       const invite: InviteLink = {
-        id: data.invite.id,
-        code: data.invite.code,
-        conversationId: data.invite.room_id,
-        label: data.invite.label,
+        id: result.inviteId,
+        code: result.code,
+        conversationId: result.roomId,
+        label: result.label,
         channel: 'both',
         prefillName: sub?.name,
         prefillLanguage: sub?.language,
         createdAt: new Date().toISOString(),
         active: true,
       }
-      updatePrefs({
-        invites: [invite, ...(prefs.invites || [])],
-        conversations: [
-          {
-            id: data.invite.room_id,
-            title: target?.title || sub?.name || 'Guest room',
-            isGroup: false,
-            members: [],
-            lastMessage: 'Сървърна стая създадена',
-            updatedAt: new Date().toISOString(),
-            unread: 0,
-            pinned: false,
-            muted: false,
-            messages: [],
-            saveChat: true,
-            disappearAfter: 'off',
-            sessionOpen: true,
-            activeGuestIds: [],
-          },
-          ...prefs.conversations.filter((c) => c.id !== data.invite!.room_id),
-        ],
-      })
-      setActiveId(data.invite.room_id)
-      void navigator.clipboard.writeText(data.url)
-      setInviteCopied(true)
-      window.setTimeout(() => setInviteCopied(false), 1800)
-      return
-    }
 
-    if (!target) return
-    const code = `inv_${Math.random().toString(36).slice(2, 8)}`
-    const invite: InviteLink = {
-      id: `invite_${Date.now()}`,
-      code,
-      conversationId: target.id,
-      label: `Покана за ${target.title}`,
-      channel: 'both',
-      prefillName: sub?.name,
-      prefillLanguage: sub?.language,
-      createdAt: new Date().toISOString(),
-      active: true,
+      updatePrefs((current) => {
+        const hasConv = current.conversations.some(
+          (c) => c.id === result.roomId
+        )
+        return {
+          invites: [invite, ...(current.invites || [])],
+          conversations: hasConv
+            ? current.conversations.map((c) =>
+                c.id === result.roomId
+                  ? { ...c, sessionOpen: true, space: 'room' as const }
+                  : c
+              )
+            : [
+                {
+                  id: result.roomId,
+                  title: target?.title || sub?.name || 'Guest room',
+                  isGroup: true,
+                  space: 'room' as const,
+                  members: target?.members || [],
+                  lastMessage: 'Сървърна стая готова за гости',
+                  updatedAt: new Date().toISOString(),
+                  unread: 0,
+                  pinned: false,
+                  muted: false,
+                  messages: target?.messages || [],
+                  saveChat: true,
+                  disappearAfter: 'off' as const,
+                  sessionOpen: true,
+                  activeGuestIds: [],
+                  joinRequests: [],
+                },
+                ...current.conversations,
+              ],
+        }
+      })
+      openThread(result.roomId, 'rooms')
+      setInviteCopied(true)
+      window.setTimeout(() => setInviteCopied(false), 2500)
+      // Phone: clipboard after await fetch has no user-gesture — show sheet instead
+      setInviteShare({
+        url: result.url,
+        label: result.label || 'OmniVoice guest покана',
+        roomId: result.roomId,
+      })
+      showDragToast('Guest линк готов — сподели или копирай')
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Неуспешна покана'
+      )
     }
-    updatePrefs({
-      invites: [invite, ...(prefs.invites || [])],
-      conversations: prefs.conversations.map((item) =>
-        item.id === target.id ? { ...item, sessionOpen: true } : item
-      ),
-    })
-    const origin = window.location.origin
-    const urlParams = new URLSearchParams({
-      invite: code,
-      conv: target.id,
-      channel: 'both',
-    })
-    if (sub?.name) urlParams.set('name', sub.name)
-    if (sub?.language) urlParams.set('lang', sub.language)
-    const url = `${origin}/join?${urlParams.toString()}`
-    void navigator.clipboard.writeText(url)
-    setInviteCopied(true)
-    window.setTimeout(() => setInviteCopied(false), 1800)
   }
 
   if (!hydrated || !user) {
@@ -1212,8 +2345,12 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-transparent text-[var(--foreground)]">
-      <header className="flex items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3">
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-transparent text-[var(--foreground)]">
+      <OnboardingTour
+        force={forceOnboarding}
+        onFinished={() => setForceOnboarding(false)}
+      />
+      <header className="relative z-[110] flex shrink-0 items-center justify-between gap-3 overflow-visible border-b border-[var(--panel-border)]/80 bg-[var(--panel)]/80 px-4 py-3 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -1228,20 +2365,166 @@ export default function DashboardPage() {
               ring={myStories.length > 0}
             />
           </button>
-          <button
-            type="button"
-            className="min-w-0 text-left"
-            onClick={() => setProfileOpen(true)}
-          >
-            <p className="truncate text-sm font-semibold">{user.displayName}</p>
-            <p className="truncate text-[11px] text-[var(--muted)]">
-              {mood.labelBg} · {admin ? 'Admin' : user.plan}
-              {fullAccess ? ' · active' : ' · unpaid'}
-            </p>
-          </button>
+          <div className="min-w-0">
+            <button
+              type="button"
+              className="block max-w-[10rem] truncate text-left text-sm font-semibold sm:max-w-[14rem]"
+              onClick={() => setProfileOpen(true)}
+            >
+              {user.displayName}
+            </button>
+            <div className="relative mt-0.5">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--accent)] ring-1 ring-[var(--accent)]/30"
+                title="Смени план / режим"
+                onClick={() => {
+                  setPlanOpen((v) => !v)
+                  setMenuOpen(false)
+                }}
+              >
+                План:{' '}
+                {user.plan === 'free'
+                  ? 'Normal'
+                  : user.plan === 'business'
+                    ? 'Business'
+                    : 'Podcast'}
+                <ChevronDown className="h-3 w-3" />
+              </button>
+              {planOpen ? (
+                <div className="ov-panel absolute left-0 top-7 z-[130] w-64 rounded-2xl p-2 shadow-2xl ring-1 ring-[var(--panel-border)]">
+                  <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    Смени план
+                  </p>
+                  {(['free', 'business', 'podcast'] as PlanId[]).map(
+                    (planId) => {
+                      const unlocked = getUnlockedPlans(user).includes(planId)
+                      const active = user.plan === planId
+                      return (
+                        <button
+                          key={planId}
+                          type="button"
+                          disabled={!unlocked && planId !== 'free'}
+                          title={
+                            unlocked
+                              ? `Превключи към ${PLANS[planId].label}`
+                              : 'Плати за този план, за да го отключиш'
+                          }
+                          onClick={() => {
+                            if (!unlocked) {
+                              router.push(`/checkout?plan=${planId}`)
+                              setPlanOpen(false)
+                              return
+                            }
+                            updatePrefs((current) => ({
+                              user: applyAdminGrantsToUser(
+                                withUnlockedPlan(user, planId, true),
+                                current.adminPlanGrants
+                              ),
+                            }))
+                            saveLastActivePlan(planId)
+                            showDragToast(`Режим: ${PLANS[planId].label}`)
+                            setPlanOpen(false)
+                          }}
+                          className={`mb-1 flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-semibold ${
+                            active
+                              ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
+                              : unlocked
+                                ? 'bg-[var(--chip)] text-[var(--foreground)] hover:ring-1 hover:ring-[var(--panel-border)]'
+                                : 'cursor-pointer opacity-55'
+                          }`}
+                        >
+                          <span>
+                            {planId === 'free'
+                              ? 'Normal (Free)'
+                              : planId === 'business'
+                                ? 'Business'
+                                : 'Podcast'}
+                          </span>
+                          <span className="text-[10px] opacity-80">
+                            {active ? '✓' : unlocked ? 'отворен' : '🔒 плати'}
+                          </span>
+                        </button>
+                      )
+                    }
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
 
-        <div className="relative flex items-center gap-2">
+        <nav
+          className="absolute left-1/2 top-1/2 z-40 hidden max-w-[min(22rem,40vw)] -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 rounded-2xl bg-[var(--chip)]/90 p-1 ring-1 ring-[var(--panel-border)]/60 lg:flex"
+          aria-label="Основна навигация"
+        >
+          {(
+            [
+              ['feed', 'Начало', Newspaper],
+              ['chats', 'Чатове', MessageCircle],
+            ] as const
+          ).map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                setTab(id)
+                setInboxFilter('all')
+                setThreadOpen(false)
+                if (id === 'feed') setSocialView(null)
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                tab === id && !threadOpen && !(id === 'feed' && socialView)
+                  ? 'bg-[var(--panel)] text-[var(--foreground)] shadow-sm'
+                  : tab === id
+                    ? 'text-[var(--accent)]'
+                    : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="relative z-50 flex flex-wrap items-center justify-end gap-1.5 overflow-visible sm:gap-2">
+          {coachTrigger ? (
+            <CoachBubble
+              key={`${coachTrigger}-${coachTick}`}
+              id={coachTrigger}
+              trigger
+              forceOnTrigger
+              className="right-0 top-full mt-2"
+              onClose={() => setCoachTrigger(null)}
+            />
+          ) : null}
+          <InstallAppButton variant="compact" />
+          <button
+            type="button"
+            className="ov-icon-btn"
+            title="Докладвай нередност"
+            aria-label="Докладвай нередност"
+            onClick={() => setHelpOpen(true)}
+          >
+            <Flag className="h-4 w-4" />
+          </button>
+          <FeedNotificationsBell
+            onOpenPage={(id) => {
+              openSocialSpace(id)
+            }}
+          />
+          <button
+            type="button"
+            className="ov-btn-ghost !inline-flex !px-2.5 !py-1.5 !text-[11px]"
+            title="Покани guest — копира линк"
+            onClick={() => {
+              showCoach('invite')
+              void createInvite()
+            }}
+          >
+            <Link2 className="h-3.5 w-3.5" />
+            {inviteCopied ? 'Линк OK' : 'Покани'}
+          </button>
           <button
             type="button"
             className="ov-icon-btn"
@@ -1250,17 +2533,27 @@ export default function DashboardPage() {
           >
             <Camera className="h-4 w-4" />
           </button>
+          {prefs.meetMatch?.enabled ? (
+            <button
+              type="button"
+              className="ov-icon-btn text-rose-500"
+              title="Случайни запознанства"
+              onClick={() => setMeetMatchOpen(true)}
+            >
+              <Heart className="h-4 w-4" />
+            </button>
+          ) : null}
           <button
             type="button"
             className="ov-icon-btn"
-            title="Studio Map"
+            title="Find My — къде са близки и приятели"
             onClick={() => setMapOpen(true)}
           >
             <MapPin className="h-4 w-4" />
           </button>
           <button
             type="button"
-            className="ov-icon-btn"
+            className="ov-icon-btn hidden sm:inline-flex"
             title="Memories / Eyes Only"
             onClick={() => setMemoriesOpen(true)}
           >
@@ -1302,154 +2595,308 @@ export default function DashboardPage() {
             Меню <ChevronDown className="h-3.5 w-3.5" />
           </button>
           {menuOpen ? (
-            <div className="ov-panel absolute right-0 top-12 z-40 w-72 rounded-2xl p-2 shadow-2xl">
-              <div className="mb-2 rounded-xl bg-[var(--chip)] px-2.5 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Режим / план
-                </p>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {(['free', 'business', 'podcast'] as PlanId[]).map((planId) => {
-                    const unlocked = getUnlockedPlans(user).includes(planId)
-                    const active = user.plan === planId
-                    return (
-                      <button
-                        key={planId}
-                        type="button"
-                        disabled={!unlocked}
-                        title={
-                          unlocked
-                            ? `Превключи към ${PLANS[planId].label}`
-                            : 'Плати за този план, за да го отключиш'
-                        }
-                        onClick={() => {
-                          if (!unlocked) {
-                            router.push(`/checkout?plan=${planId}`)
-                            setMenuOpen(false)
-                            return
-                          }
-                          updatePrefs({
-                            user: withUnlockedPlan(user, planId, true),
-                          })
-                          showDragToast(`Режим: ${PLANS[planId].label}`)
-                          setMenuOpen(false)
-                        }}
-                        className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                          active
-                            ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
-                            : unlocked
-                              ? 'bg-[var(--panel)] text-[var(--foreground)] ring-1 ring-[var(--panel-border)]'
-                              : 'cursor-not-allowed opacity-40'
-                        }`}
-                      >
-                        {planId === 'free'
-                          ? 'Normal'
-                          : planId === 'business'
-                            ? 'Business'
-                            : 'Podcast'}
-                        {!unlocked ? ' 🔒' : ''}
-                      </button>
-                    )
-                  })}
+            <div className="ov-panel fixed left-3 right-3 top-[4.25rem] z-[120] flex max-h-[min(70dvh,32rem)] max-w-[22rem] flex-col overflow-hidden rounded-2xl p-2.5 shadow-2xl sm:left-auto sm:right-4 sm:ml-auto sm:w-[22rem]">
+              <div className="ov-scroll min-h-0 flex-1 space-y-0.5 pr-0.5">
+                <div className="mb-2 rounded-xl bg-[var(--chip)] px-2.5 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    Режим / план
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {(['free', 'business', 'podcast'] as PlanId[]).map(
+                      (planId) => {
+                        const unlocked = getUnlockedPlans(user).includes(planId)
+                        const active = user.plan === planId
+                        return (
+                          <button
+                            key={planId}
+                            type="button"
+                            disabled={!unlocked}
+                            title={
+                              unlocked
+                                ? `Превключи към ${PLANS[planId].label}`
+                                : 'Плати за този план, за да го отключиш'
+                            }
+                            onClick={() => {
+                              if (!unlocked) {
+                                router.push(`/checkout?plan=${planId}`)
+                                setMenuOpen(false)
+                                return
+                              }
+                              updatePrefs((current) => ({
+                                user: applyAdminGrantsToUser(
+                                  withUnlockedPlan(user, planId, true),
+                                  current.adminPlanGrants
+                                ),
+                              }))
+                              saveLastActivePlan(planId)
+                              showDragToast(`Режим: ${PLANS[planId].label}`)
+                              setMenuOpen(false)
+                            }}
+                            className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                              active
+                                ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
+                                : unlocked
+                                  ? 'bg-[var(--panel)] text-[var(--foreground)] ring-1 ring-[var(--panel-border)]'
+                                  : 'cursor-not-allowed opacity-40'
+                            }`}
+                          >
+                            {planId === 'free'
+                              ? 'Normal'
+                              : planId === 'business'
+                                ? 'Business'
+                                : 'Podcast'}
+                            {!unlocked ? ' 🔒' : ''}
+                          </button>
+                        )
+                      }
+                    )}
+                  </div>
                 </div>
+                <MenuItem
+                  icon={Headphones}
+                  label="Настройки на стая"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    showCoach('settings')
+                    setSettingsScope('room')
+                    setSettingsTab('room')
+                    setSettingsOpen(true)
+                  }}
+                />
+                <MenuItem
+                  icon={Volume2}
+                  label="Звук / музика"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setSettingsScope('full')
+                    setSettingsTab('music')
+                    setSettingsOpen(true)
+                  }}
+                />
+                <MenuItem
+                  icon={Ban}
+                  label="Блокирани абонати"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setTab('blocked')
+                  }}
+                />
+                <MenuItem
+                  icon={MessageCircle}
+                  label="Помощ и докладване"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setHelpOpen(true)
+                  }}
+                />
+                <MenuItem
+                  icon={UserPlus}
+                  label="Добави абонат"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setTab('subscribers')
+                  }}
+                />
+                <MenuItem
+                  icon={Share2}
+                  label="Покани към приложението"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void invitePersonToApp()
+                  }}
+                />
+                {workspace === 'business' || admin ? (
+                  <MenuItem
+                    icon={UserPlus}
+                    label="Импорт контакти (CRM)"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setImportOpen(true)
+                    }}
+                  />
+                ) : null}
+                {workspace === 'podcast' || admin ? (
+                  <MenuItem
+                    icon={Radio}
+                    label="Multistream / OBS"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setSettingsScope('full')
+                      setSettingsTab('platforms')
+                      setSettingsOpen(true)
+                    }}
+                  />
+                ) : null}
+                <MenuItem
+                  icon={Plus}
+                  label="Създай стая"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setCreateRoomOpen(true)
+                  }}
+                />
+                <MenuItem
+                  icon={Link2}
+                  label={inviteCopied ? 'Линкът е копиран' : 'Покани guest'}
+                  onClick={() => {
+                    void createInvite()
+                    setMenuOpen(false)
+                  }}
+                />
+                <MenuItem
+                  icon={Sun}
+                  label="Теми"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setAppearanceOpen(true)
+                  }}
+                />
+                <MenuItem
+                  icon={Settings2}
+                  label="Всички фини настройки"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    showCoach('settings')
+                    setSettingsScope('full')
+                    setSettingsTab('account')
+                    setSettingsOpen(true)
+                  }}
+                />
+                <MenuItem
+                  icon={LogOut}
+                  label="Изход"
+                  onClick={() => {
+                    void signOutBackend().finally(() => {
+                      updatePrefs({ user: null })
+                      router.push('/login')
+                    })
+                  }}
+                />
               </div>
-              <MenuItem
-                icon={Headphones}
-                label="Настройки на стая"
-                onClick={() => {
-                  setMenuOpen(false)
-                  setSettingsTab('room')
-                  setSettingsOpen(true)
-                }}
-              />
-              <MenuItem
-                icon={Volume2}
-                label="Звук / музика"
-                onClick={() => {
-                  setMenuOpen(false)
-                  setSettingsTab('music')
-                  setSettingsOpen(true)
-                }}
-              />
-              <MenuItem
-                icon={Ban}
-                label="Блокирани абонати"
-                onClick={() => {
-                  setMenuOpen(false)
-                  setTab('blocked')
-                }}
-              />
-              <MenuItem
-                icon={UserPlus}
-                label="Импорт контакти"
-                onClick={() => {
-                  setMenuOpen(false)
-                  setImportOpen(true)
-                }}
-              />
-              <MenuItem
-                icon={Plus}
-                label="Създай стая"
-                onClick={() => {
-                  setMenuOpen(false)
-                  setCreateRoomOpen(true)
-                }}
-              />
-              <MenuItem
-                icon={Link2}
-                label={inviteCopied ? 'Линкът е копиран' : 'Покани с линк'}
-                onClick={() => {
-                  createInvite()
-                  setMenuOpen(false)
-                }}
-              />
-              <MenuItem
-                icon={Sun}
-                label="Теми и тапети"
-                onClick={() => {
-                  setMenuOpen(false)
-                  setAppearanceOpen(true)
-                }}
-              />
-              <MenuItem
-                icon={Settings2}
-                label="Всички фини настройки"
-                onClick={() => {
-                  setMenuOpen(false)
-                  setSettingsTab('account')
-                  setSettingsOpen(true)
-                }}
-              />
-              <MenuItem
-                icon={LogOut}
-                label="Изход"
-                onClick={() => {
-                  void signOutBackend().finally(() => {
-                    updatePrefs({ user: null })
-                    router.push('/login')
-                  })
-                }}
-              />
             </div>
           ) : null}
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-7xl flex-1 overflow-hidden lg:grid-cols-[340px_1fr]">
-        <aside className="flex flex-col border-r border-[var(--panel-border)] bg-[var(--chip)]/40">
-          <div className="border-b border-[var(--panel-border)] p-3">
+      <div
+        className={`mx-auto grid w-full max-w-7xl min-h-0 flex-1 overflow-hidden ${
+          tab !== 'feed' && threadOpen
+            ? 'grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:grid-rows-none'
+            : 'grid-cols-1 grid-rows-[minmax(0,1fr)]'
+        }`}
+      >
+        {workspace === 'business' ? (
+          <div
+            className={
+              tab === 'feed'
+                ? 'hidden'
+                : threadOpen
+                  ? 'hidden min-h-0 lg:contents'
+                  : 'contents'
+            }
+          >
+          <BusinessAside
+            deals={pipelineDeals}
+            conversations={prefs.conversations}
+            activeId={activeId}
+            stageFilter={dealStageFilter}
+            onStageFilter={setDealStageFilter}
+            onSelectDeal={(id) => {
+              openThread(id, 'rooms')
+              patchConversation(id, { sessionOpen: true })
+            }}
+            onOpenRoom={(id) => {
+              openThread(id, 'rooms')
+              void enterLiveRoom(id, true)
+            }}
+            onNewDeal={() => {
+              setDealComposerOpen(true)
+              setTab('rooms')
+              setThreadOpen(false)
+            }}
+            onCreateRoom={() => {
+              setTab('rooms')
+              setCreateRoomOpen(true)
+              setThreadOpen(false)
+            }}
+            onInviteGuest={() => void createInvite()}
+            inviteCopied={inviteCopied}
+            onImportContacts={() => setImportOpen(true)}
+            secretaryEnabled={Boolean(user.secretaryEnabled)}
+            secretaryPhone={user.secretaryPhone || ''}
+            onOpenSecretary={() => {
+              setSettingsScope('full')
+              setSettingsTab('secretary')
+              setSettingsOpen(true)
+            }}
+          />
+          </div>
+        ) : workspace === 'podcast' ? (
+          <div
+            className={
+              tab === 'feed'
+                ? 'hidden'
+                : threadOpen
+                  ? 'hidden min-h-0 lg:contents'
+                  : 'contents'
+            }
+          >
+          <PodcastAside
+            conversations={prefs.conversations}
+            activeId={activeId}
+            onSelectShow={(id) => {
+              openThread(id, 'rooms')
+              patchConversation(id, { sessionOpen: true })
+            }}
+            onOpenRoom={(id) => {
+              openThread(id, 'rooms')
+              void enterLiveRoom(id, true)
+            }}
+            onCreateShow={() => {
+              setTab('rooms')
+              setCreateRoomOpen(true)
+              setThreadOpen(false)
+            }}
+            onInviteGuest={() => void createInvite()}
+            inviteCopied={inviteCopied}
+            guestCount={
+              active?.members.filter((m) => m.id.startsWith('guest_')).length ||
+              subscribers.length
+            }
+            liveOnAir={liveOnAir}
+            onToggleLive={() => {
+              showCoach('go_live')
+              setLiveGoOpen(true)
+            }}
+          />
+          </div>
+        ) : (
+        <aside
+          className={`min-h-0 flex-col overflow-hidden border-r border-[var(--panel-border)] bg-[var(--panel)] ${
+            tab === 'feed'
+              ? 'hidden'
+              : threadOpen
+                ? 'hidden lg:flex'
+                : 'flex'
+          }`}
+        >
+          <div className="shrink-0 border-b border-[var(--panel-border)] p-3">
             <div className="flex min-w-0 items-center gap-2">
               <Waves className="h-4 w-4 shrink-0 text-[var(--accent)]" />
               <p className="truncate text-sm font-semibold">
-                Messenger dashboard
+                {chrome.brandBg}
               </p>
             </div>
             <button
               type="button"
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--accent)]/40 bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-semibold text-[var(--accent)] hover:brightness-105"
-              onClick={() => setCreateRoomOpen(true)}
+              onClick={() => {
+                setTab('rooms')
+                setCreateRoomOpen(true)
+              }}
             >
               <Plus className="h-4 w-4" />
-              Създай стая
+              Нова стая
             </button>
             <div className="ov-input-wrap mt-3">
               <Search className="h-4 w-4 opacity-50" />
@@ -1460,37 +2907,47 @@ export default function DashboardPage() {
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>
-            <div className="mt-3 flex gap-1 rounded-full bg-[var(--chip)] p-1">
+            <div className="mt-3 grid grid-cols-3 gap-0.5 rounded-2xl bg-[var(--chip)]/80 p-1 ring-1 ring-[var(--panel-border)]/60 sm:grid-cols-5">
               {(
                 [
+                  ['feed', 'Начало'],
                   ['chats', 'Чатове'],
+                  ['rooms', 'Стаи'],
                   ['subscribers', 'Абонати'],
-                  ['blocked', 'Блокирани'],
+                  ['blocked', 'Блок'],
                 ] as const
               ).map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setTab(id)}
-                  className={`flex-1 rounded-full px-2 py-1.5 text-[11px] font-semibold ${
+                  onClick={() => {
+                    setTab(id)
+                    setInboxFilter('all')
+                    setThreadOpen(false)
+                  }}
+                  className={`rounded-xl px-1.5 py-1.5 text-[11px] font-semibold transition ${
                     tab === id
-                      ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
-                      : 'text-[var(--muted)]'
+                      ? 'bg-[var(--panel)] text-[var(--foreground)] shadow-sm'
+                      : 'text-[var(--muted)] hover:text-[var(--foreground)]'
                   }`}
                 >
                   {label}
                 </button>
               ))}
             </div>
-            {tab === 'chats' ? (
+            {tab === 'chats' || tab === 'rooms' ? (
               <div className="mt-2 flex flex-wrap gap-1">
-                {(
-                  [
-                    ['all', 'Всички'],
-                    ['unread', 'Непрочетени'],
-                    ['groups', 'Групи'],
-                    ['archived', 'Архив'],
-                  ] as const
+                {(tab === 'chats'
+                  ? ([
+                      ['all', 'Всички'],
+                      ['unread', 'Непрочетени'],
+                      ['archived', 'Архив'],
+                    ] as const)
+                  : ([
+                      ['all', 'Всички'],
+                      ['live', 'Отворени'],
+                      ['archived', 'Архив'],
+                    ] as const)
                 ).map(([id, label]) => (
                   <button
                     key={id}
@@ -1507,24 +2964,153 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : null}
+            {tab === 'rooms' && !dragSubId ? (
+              <button
+                type="button"
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-soft)] px-3 py-2 text-[11px] font-semibold text-[var(--accent)] transition hover:brightness-105"
+                onClick={() => setCreateRoomOpen(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Нова стая
+              </button>
+            ) : null}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-2">
+          <div className="ov-scroll min-h-0 flex-1 p-2 pb-[max(5.5rem,env(safe-area-inset-bottom))] lg:pb-[max(2rem,env(safe-area-inset-bottom))]">
             {dragSubId ? (
               <div className="mb-2 rounded-xl border border-dashed border-[var(--accent)]/45 bg-[var(--accent-soft)] px-3 py-2 text-[11px] text-[var(--accent)]">
-                Пусни абоната върху стая по-долу или вдясно
+                Пусни абоната върху стая по-долу
               </div>
             ) : null}
 
-            {(tab === 'chats' || dragSubId) &&
-              conversations.map((conv) => {
+            {(tab === 'chats' || tab === 'rooms') && !dragSubId && user ? (
+              <div className="mb-2 space-y-2">
+                <ProfilePageCard
+                  displayName={user.displayName || user.fullName}
+                  bio={prefs.profileSocial?.bio}
+                  avatarDataUrl={user.avatarDataUrl}
+                  planLabel={PLANS[user.plan]?.label || user.plan}
+                  quotaLabel={planPageQuotaLabel(user)}
+                  followerCount={myProfilePage?.followerIds?.length || 0}
+                  slots={pageSlotSummary(user, prefs.conversations)}
+                  onOpenOrCreatePage={(format) => {
+                    const existing = prefs.conversations.find(
+                      (c) =>
+                        c.spaceFormat === format &&
+                        c.adminUserId === user.id &&
+                        !c.archived
+                    )
+                    if (existing) {
+                      openThread(existing.id, 'rooms')
+                      return
+                    }
+                    const gate = canCreateOwnedPage(
+                      user,
+                      prefs.conversations,
+                      format
+                    )
+                    if (!gate.ok) {
+                      showDragToast(gate.reason || 'Заключено')
+                      return
+                    }
+                    const titles: Record<string, string> = {
+                      page: `Страница · ${user.displayName || user.fullName}`,
+                      business: `Бизнес · ${user.company || user.displayName}`,
+                      podcast: `Подкаст · ${user.displayName || user.fullName}`,
+                    }
+                    const now = new Date().toISOString()
+                    const conv: Conversation = {
+                      id: `conv_${Date.now()}`,
+                      title: titles[format] || titles.page,
+                      isGroup: true,
+                      space: 'room',
+                      roomKind:
+                        format === 'podcast'
+                          ? 'studio'
+                          : format === 'business'
+                            ? 'meeting'
+                            : 'general',
+                      spaceFormat: format,
+                      adminUserId: user.id,
+                      followPolicy: defaultFollowPolicy(format),
+                      allowCrossPlanFollow: true,
+                      followerIds: [],
+                      interestTags: [],
+                      members: [],
+                      lastMessage: 'Страницата е готова',
+                      updatedAt: now,
+                      unread: 0,
+                      pinned: true,
+                      muted: false,
+                      messages: [
+                        {
+                          id: `msg_${Date.now()}`,
+                          fromMe: true,
+                          text: '👋 Това е твоята страница — видима за follow, стаите остават само за поканени.',
+                          createdAt: now,
+                          status: 'sent',
+                        },
+                      ],
+                      saveChat: true,
+                      disappearAfter: 'off',
+                      sessionOpen: true,
+                      activeGuestIds: [],
+                      joinRequests: [],
+                    }
+                    updatePrefs((current) => ({
+                      conversations: [conv, ...current.conversations],
+                    }))
+                    openThread(conv.id, 'rooms')
+                    showDragToast(`Създадена: ${titles[format]}`)
+                  }}
+                  onCreateRoom={() => setCreateRoomOpen(true)}
+                  onGoLive={undefined}
+                />
+                <DiscoverPagesPanel
+                  conversations={prefs.conversations}
+                  currentUserId={user.id}
+                  onOpen={(id) => {
+                    openSocialSpace(id)
+                  }}
+                  onToggleFollow={toggleFollowPage}
+                />
+              </div>
+            ) : null}
+
+            {tab === 'feed' && !dragSubId && user ? (
+              <div className="mb-2 space-y-2">
+                <div className="rounded-xl border border-dashed border-[var(--accent)]/35 bg-[var(--accent-soft)]/40 px-3 py-2 text-[11px] text-[var(--muted)]">
+                  Facebook-стил: сторита горе · постове при скрол надолу. Follow
+                  страници от „Открий“.
+                </div>
+                <ShareGrowPanel
+                  variant="compact"
+                  hostId={user.id}
+                  hostName={user.displayName || user.fullName}
+                  onToast={showDragToast}
+                />
+              </div>
+            ) : null}
+
+            {(tab === 'chats' || tab === 'rooms' || dragSubId) &&
+              (conversations.length ? (
+                conversations.map((conv) => {
                 const drop = roomDropHandlers(conv.id)
                 const isDrop = dropOverId === conv.id
+                const isRoom = conversationSpace(conv) === 'room'
                 return (
                   <button
                     key={conv.id}
                     type="button"
-                    onClick={() => setActiveId(conv.id)}
+                    onClick={() => {
+                      openThread(conv.id, isRoom ? 'rooms' : 'chats')
+                      if (
+                        conv.roomKind === 'meet' ||
+                        isMeetConversationId(conv.id)
+                      ) {
+                        setMeetRoomOpen(true)
+                      }
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault()
                       setCtxMenu({
@@ -1555,7 +3141,7 @@ export default function DashboardPage() {
                     onDragOver={drop.onDragOver}
                     onDragLeave={drop.onDragLeave}
                     onDrop={drop.onDrop}
-                    className={`mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition ${
+                    className={`mb-0.5 flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left transition ${
                       isDrop
                         ? 'bg-[var(--accent)] text-[var(--accent-ink)] ring-2 ring-[var(--accent)]'
                         : activeId === conv.id
@@ -1565,19 +3151,45 @@ export default function DashboardPage() {
                             : 'hover:bg-[var(--chip)]'
                     }`}
                   >
-                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-emerald-700 text-sm font-bold text-white">
-                      {conv.isGroup ? (
-                        <Users className="h-4 w-4" />
+                    <span
+                      className={`flex h-10 w-10 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-white ${
+                        conv.roomKind === 'meet'
+                          ? 'bg-gradient-to-br from-rose-400 to-sky-400'
+                          : isRoom
+                            ? 'bg-gradient-to-br from-sky-500 to-indigo-700'
+                            : 'bg-gradient-to-br from-teal-400 to-emerald-700'
+                      }`}
+                    >
+                      {conv.roomKind === 'meet' &&
+                      conv.members[0]?.avatarDataUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={conv.members[0].avatarDataUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : isRoom ? (
+                        <DoorOpen className="h-4 w-4" />
                       ) : (
                         conv.title.slice(0, 1)
                       )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-semibold">
-                          {conv.title}
+                        <span className="truncate text-[13px] font-semibold tracking-tight">
+                          {conv.roomKind === 'meet' ? `✨ ${conv.title}` : conv.title}
                         </span>
                         <span className="flex items-center gap-1">
+                          {conv.roomKind === 'meet' ? (
+                            <span className="rounded-full bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-rose-500">
+                              мач
+                            </span>
+                          ) : null}
+                          {isRoom && conv.sessionOpen !== false ? (
+                            <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-500">
+                              live
+                            </span>
+                          ) : null}
                           {conv.muted ? (
                             <BellOff className="h-3 w-3 text-[var(--muted)]" />
                           ) : null}
@@ -1587,7 +3199,7 @@ export default function DashboardPage() {
                         </span>
                       </span>
                       <span
-                        className={`mt-0.5 block truncate text-xs ${
+                        className={`mt-0.5 block truncate text-[11px] ${
                           isDrop ? 'opacity-90' : 'text-[var(--muted)]'
                         }`}
                       >
@@ -1595,7 +3207,9 @@ export default function DashboardPage() {
                           ? 'Пусни тук, за да добавиш'
                           : dragSubId
                             ? `${conv.members.length} участници · пусни тук`
-                            : conv.lastMessage}
+                            : isRoom
+                              ? `${conv.members.length || 0} души · ${conv.lastMessage}`
+                              : conv.lastMessage}
                       </span>
                     </span>
                     {conv.unread > 0 && !dragSubId ? (
@@ -1605,107 +3219,183 @@ export default function DashboardPage() {
                     ) : null}
                   </button>
                 )
-              })}
+              })
+              ) : (
+                <p className="px-3 py-8 text-center text-xs text-[var(--muted)]">
+                  {tab === 'rooms'
+                    ? 'Няма стаи — създай нова стая по-горе'
+                    : 'Няма разговори — отвори чат от Абонати'}
+                </p>
+              ))}
 
-            {tab === 'subscribers' &&
-              subscribers.map((sub) => (
-                <div
-                  key={sub.id}
-                  draggable
-                  onDragStart={(e) => onSubscriberDragStart(sub.id, e)}
-                  onDragEnd={onSubscriberDragEnd}
-                  className={`mb-1 flex cursor-grab items-center gap-2 rounded-2xl px-3 py-2.5 active:cursor-grabbing hover:bg-[var(--chip)] ${
-                    dragSubId === sub.id ? 'opacity-50 ring-1 ring-[var(--accent)]' : ''
-                  }`}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    setCtxMenu({
-                      x: e.clientX,
-                      y: e.clientY,
-                      type: 'subscriber',
-                      id: sub.id,
-                    })
-                  }}
-                  title="Плъзни към стая, за да добавиш"
-                >
+            {tab === 'subscribers' ? (
+              <>
+              <FriendSearchPanel
+                excludeIds={prefs.subscribers.map((s) => s.id)}
+                onAdd={addFriendFromHit}
+              />
+              <form
+                className="mb-3 space-y-2 rounded-2xl bg-[var(--chip)]/70 p-3 ring-1 ring-[var(--panel-border)]/80"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  addSubscriberManual()
+                }}
+              >
+                <p className="text-[10px] font-medium tracking-wide text-[var(--muted)]">
+                  Нов контакт · безплатно
+                </p>
+                <input
+                  className="ov-field !rounded-xl !border-0 !bg-[var(--panel)] !py-2 text-xs"
+                  placeholder="Име"
+                  value={newSubName}
+                  onChange={(e) => setNewSubName(e.target.value)}
+                />
+                <input
+                  className="ov-field !rounded-xl !border-0 !bg-[var(--panel)] !py-2 text-xs"
+                  placeholder="Имейл или телефон"
+                  value={newSubContact}
+                  onChange={(e) => setNewSubContact(e.target.value)}
+                />
+                <div className="grid grid-cols-2 gap-1.5">
                   <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => startConversationFromSubscriber(sub.id)}
+                    type="submit"
+                    disabled={!newSubName.trim()}
+                    className="ov-btn-primary !rounded-xl !py-2 text-[11px] disabled:opacity-40"
                   >
-                    <p className="truncate text-sm font-semibold">{sub.name}</p>
-                    <p className="truncate text-xs text-[var(--muted)]">
-                      {presenceLabel(sub.presence || 'offline')} · плъзни → стая
-                    </p>
+                    Добави
                   </button>
                   <button
                     type="button"
-                    className="ov-icon-btn"
-                    title="Иска да влезе в отворена стая"
-                    onClick={() => subscriberRequestEnter(sub.id)}
+                    className="ov-btn-ghost !rounded-xl !py-2 text-[11px]"
+                    title="Копирай линк за регистрация в OmniVoice"
+                    onClick={() =>
+                      void invitePersonToApp(newSubName.trim() || undefined)
+                    }
                   >
-                    <DoorOpen className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="ov-icon-btn"
-                    title="Покани с линк"
-                    onClick={() => {
-                      const existing = prefs.conversations.find(
-                        (conv) => !conv.isGroup && conv.title === sub.name
-                      )
-                      if (existing) {
-                        setActiveId(existing.id)
-                        createInvite(sub.id, existing.id)
-                        return
-                      }
-                      const convId = `conv_${Date.now()}`
-                      const conv: Conversation = {
-                        id: convId,
-                        title: sub.name,
-                        isGroup: false,
-                        members: [
-                          {
-                            id: sub.id,
-                            name: sub.name,
-                            language: sub.language,
-                            presence: sub.presence || 'offline',
-                            avatarDataUrl: sub.avatarDataUrl,
-                          },
-                        ],
-                        lastMessage: 'Нов разговор',
-                        updatedAt: '2026-10-19T15:00:00.000Z',
-                        unread: 0,
-                        pinned: false,
-                        muted: false,
-                        saveChat: true,
-                        disappearAfter: 'off',
-                        sessionOpen: true,
-                        activeGuestIds: [],
-                        messages: [],
-                      }
-                      updatePrefs({
-                        conversations: [conv, ...prefs.conversations],
-                      })
-                      setActiveId(convId)
-                      setTab('chats')
-                      window.setTimeout(
-                        () => createInvite(sub.id, convId),
-                        0
-                      )
-                    }}
-                  >
-                    <Link2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="ov-icon-btn"
-                    title="Блокирай"
-                    onClick={() => blockSubscriber(sub.id)}
-                  >
-                    <Ban className="h-3.5 w-3.5" />
+                    <Share2 className="h-3.5 w-3.5" />
+                    Към app
                   </button>
                 </div>
+              </form>
+              </>
+            ) : null}
+
+            {tab === 'subscribers' &&
+              (subscribers.length ? (
+                <ul className="space-y-0.5">
+                  {subscribers.map((sub) => {
+                    const presence = sub.presence || 'offline'
+                    const dot =
+                      presence === 'online' ||
+                      presence === 'writing' ||
+                      presence === 'speaking'
+                        ? 'bg-emerald-400'
+                        : presence === 'in_call' || presence === 'in_studio'
+                          ? 'bg-sky-400'
+                          : 'bg-zinc-400'
+                    return (
+                      <li
+                        key={sub.id}
+                        draggable
+                        onDragStart={(e) => onSubscriberDragStart(sub.id, e)}
+                        onDragEnd={onSubscriberDragEnd}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          setCtxMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            type: 'subscriber',
+                            id: sub.id,
+                          })
+                        }}
+                        className={`group relative flex items-center gap-2.5 rounded-2xl px-2.5 py-2 transition-colors duration-150 ${
+                          dragSubId === sub.id
+                            ? 'bg-[var(--accent-soft)] opacity-60'
+                            : 'hover:bg-[var(--chip)]'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className="relative shrink-0"
+                          title="Опции"
+                          onClick={() => setFriendSheetId(sub.id)}
+                        >
+                          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-teal-400/90 to-emerald-800 text-sm font-bold text-white shadow-sm">
+                            {sub.name.slice(0, 1).toUpperCase()}
+                          </span>
+                          <span
+                            className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--panel)] ${dot}`}
+                          />
+                        </button>
+
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 pr-1 text-left transition-[padding] group-hover:pr-[8.5rem] max-sm:pr-1"
+                          onClick={() => setFriendSheetId(sub.id)}
+                        >
+                          <p className="truncate text-[13px] font-semibold tracking-tight">
+                            {sub.name}
+                          </p>
+                          <p className="truncate text-[11px] text-[var(--muted)]">
+                            {presenceLabel(presence)}
+                          </p>
+                        </button>
+
+                        {/* Hover actions — hidden until pointer is over the row */}
+                        <div
+                          className="pointer-events-none absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 rounded-full bg-[var(--panel)]/95 p-1 opacity-0 shadow-lg ring-1 ring-[var(--panel-border)] backdrop-blur-md transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 max-sm:pointer-events-auto max-sm:static max-sm:translate-y-0 max-sm:opacity-100 max-sm:bg-transparent max-sm:p-0 max-sm:shadow-none max-sm:ring-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            title="Чат"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--foreground)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]"
+                            onClick={() => {
+                              startConversationFromSubscriber(sub.id)
+                              setTab('chats')
+                            }}
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Обаждане"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--foreground)] transition hover:bg-emerald-500/15 hover:text-emerald-500"
+                            onClick={() => {
+                              setOperatorCall({ name: sub.name })
+                            }}
+                          >
+                            <Phone className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Видео обаждане"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--foreground)] transition hover:bg-sky-500/15 hover:text-sky-500"
+                            onClick={() => {
+                              const started =
+                                startConversationFromSubscriber(sub.id)
+                              if (started) void enterLiveRoom(started.id, true)
+                            }}
+                          >
+                            <Video className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Покани към приложението"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--foreground)] transition hover:bg-violet-500/15 hover:text-violet-500"
+                            onClick={() => void invitePersonToApp(sub.name)}
+                          >
+                            <Share2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <p className="px-3 py-6 text-center text-xs text-[var(--muted)]">
+                  Няма абонати още — добави име по-горе
+                </p>
               ))}
 
             {tab === 'blocked' &&
@@ -1745,21 +3435,363 @@ export default function DashboardPage() {
               ))}
           </div>
         </aside>
+        )}
 
         <section
-          className={`flex min-w-0 flex-col ${
+          className={`min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--panel)] ${
+            tab === 'feed' || threadOpen ? 'flex h-full' : 'hidden'
+          } ${
             dragSubId && active && dropOverId === active.id
               ? 'ring-2 ring-inset ring-[var(--accent)]'
               : ''
           }`}
-          {...(active ? roomDropHandlers(active.id) : {})}
+          {...(active && tab !== 'feed' && threadOpen
+            ? roomDropHandlers(active.id)
+            : {})}
         >
-          {active ? (
-            <>
-              <div className="flex items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3">
+          {tab === 'feed' && user ? (
+            socialView &&
+            prefs.conversations.find((c) => c.id === socialView.id) ? (
+              <div className="flex h-full min-h-0 w-full flex-col lg:flex-row">
+                <SocialSpaceViewer
+                  className="min-h-0 flex-1"
+                  space={
+                    prefs.conversations.find((c) => c.id === socialView.id)!
+                  }
+                  userId={user.id}
+                  userName={user.displayName || user.fullName}
+                  focusPostId={socialView.postId}
+                  readerLang={user.nativeLanguage || 'bg'}
+                  plan={user.plan}
+                  bonusChars={prefs.translateBonusChars || 0}
+                  onBack={() => setSocialView(null)}
+                  onToggleFollowOrJoin={() =>
+                    toggleFollowPage(socialView.id)
+                  }
+                  onAcceptRequest={(requestId) =>
+                    acceptSpaceRequest(socialView.id, requestId)
+                  }
+                  onOpenChat={() => {
+                    setSocialView(null)
+                    openThread(socialView.id, 'chats')
+                  }}
+                  onStartVoice={() => {
+                    setSocialView(null)
+                    void enterLiveRoom(socialView.id, false)
+                  }}
+                  onStartVideo={() => {
+                    setSocialView(null)
+                    void enterLiveRoom(socialView.id, true)
+                  }}
+                  onGoLive={(cover) => {
+                    if (cover) {
+                      updatePrefs((current) => ({
+                        room: {
+                          ...current.room,
+                          cutoutMode: 'contour',
+                          virtualBackground: true,
+                          backgroundImageDataUrl: cover,
+                        },
+                      }))
+                    }
+                    void enterLiveRoom(socialView.id, true)
+                  }}
+                />
+                <div className="ov-scroll hidden w-[280px] shrink-0 flex-col border-l border-[var(--panel-border)] lg:flex">
+                  <FeedRightRail
+                    className="min-h-0 flex-1 border-l-0"
+                    userId={user.id}
+                    friends={prefs.subscribers}
+                    conversations={prefs.conversations}
+                    onOpenFriend={(id) => {
+                      setFriendshipId(id)
+                      setSocialView(null)
+                      setTab('chats')
+                      setThreadOpen(false)
+                    }}
+                    onOpenPage={(id) => openSocialSpace(id)}
+                    onOpenGroup={(id) => openSocialSpace(id)}
+                    onOpenGames={() => undefined}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full min-h-0 w-full flex-col lg:flex-row">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                  <div className="shrink-0 border-b border-[var(--panel-border)] px-2 pt-2">
+                    <ReportIssueNotice onOpenHelp={() => setHelpOpen(true)} />
+                  </div>
+                  {user.plan === 'business' || user.plan === 'podcast' ? (
+                    <div className="shrink-0 border-b border-[var(--panel-border)] p-2 lg:hidden">
+                      <PlanGrowthCoach
+                        userId={user.id}
+                        plan={user.plan}
+                        aiPodcast={
+                          prefs.experience.aiPodcastAssistant !== false
+                        }
+                        aiBusiness={
+                          prefs.experience.aiBusinessCoach !== false
+                        }
+                        aiCulture={
+                          prefs.experience.aiCultureAdvisor !== false
+                        }
+                        podcastTopic={prefs.experience.podcastTopic || ''}
+                        onPodcastTopic={(t) =>
+                          updatePrefs((c) => ({
+                            experience: { ...c.experience, podcastTopic: t },
+                          }))
+                        }
+                        partnerCountry={
+                          prefs.experience.partnerCountry || 'bg'
+                        }
+                        onPartnerCountry={(code) =>
+                          updatePrefs((c) => ({
+                            experience: {
+                              ...c.experience,
+                              partnerCountry: code,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  ) : null}
+                <HomeFeed
+                  className="h-full min-h-0 min-w-0 flex-1"
+                  userId={user.id}
+                  displayName={user.displayName || user.fullName}
+                  avatarUrl={user.avatarDataUrl}
+                  myStories={myStories}
+                  friends={prefs.subscribers}
+                  conversations={prefs.conversations}
+                  plan={user.plan}
+                  readerLang={user.nativeLanguage || 'bg'}
+                  billingUserId={user.id}
+                  bonusChars={prefs.translateBonusChars || 0}
+                  onOpenStoryComposer={() => setProfileOpen(true)}
+                  onOpenPage={(id) => openSocialSpace(id)}
+                  onOpenSpace={(id, postId) => openSocialSpace(id, postId)}
+                  onOpenFriend={(id) => {
+                    setFriendshipId(id)
+                    setTab('chats')
+                    setThreadOpen(false)
+                  }}
+                  onCompose={(kind) => {
+                    if (kind === 'live') {
+                      const page = myProfilePage
+                      if (page) {
+                        openSocialSpace(page.id)
+                        void enterLiveRoom(page.id, true)
+                      } else {
+                        showDragToast('Създай профилна страница първо')
+                      }
+                      return
+                    }
+                    if (kind === 'checkin') {
+                      showDragToast('Място: отвори профил и добави локация')
+                      setMapOpen(true)
+                      return
+                    }
+                    if (kind === 'event' || kind === 'poll') {
+                      showDragToast(
+                        kind === 'event'
+                          ? 'Събитие: създай пост с дата в страницата'
+                          : 'Анкета: ползвай poll в чат или пост'
+                      )
+                    }
+                    setProfileOpen(true)
+                  }}
+                />
+                </div>
+                <div className="ov-scroll hidden w-[300px] shrink-0 flex-col gap-2 border-l border-[var(--panel-border)] p-2 lg:flex">
+                  {user.plan === 'business' || user.plan === 'podcast' ? (
+                    <PlanGrowthCoach
+                      userId={user.id}
+                      plan={user.plan}
+                      aiPodcast={prefs.experience.aiPodcastAssistant !== false}
+                      aiBusiness={prefs.experience.aiBusinessCoach !== false}
+                      aiCulture={prefs.experience.aiCultureAdvisor !== false}
+                      podcastTopic={prefs.experience.podcastTopic || ''}
+                      onPodcastTopic={(t) =>
+                        updatePrefs((c) => ({
+                          experience: { ...c.experience, podcastTopic: t },
+                        }))
+                      }
+                      partnerCountry={
+                        prefs.experience.partnerCountry || 'bg'
+                      }
+                      onPartnerCountry={(code) =>
+                        updatePrefs((c) => ({
+                          experience: {
+                            ...c.experience,
+                            partnerCountry: code,
+                          },
+                        }))
+                      }
+                    />
+                  ) : null}
+                  <FeatureSuggestionsBanner plan={user.plan} />
+                  <FeedRightRail
+                    className="min-h-0 flex-1 border-l-0"
+                    userId={user.id}
+                    friends={prefs.subscribers}
+                    conversations={prefs.conversations}
+                    onOpenFriend={(id) => {
+                      setFriendshipId(id)
+                      setTab('chats')
+                      setThreadOpen(false)
+                    }}
+                    onOpenPage={(id) => openSocialSpace(id)}
+                    onOpenGroup={(id) => openSocialSpace(id)}
+                    onOpenGames={() => undefined}
+                  />
+                </div>
                 <button
                   type="button"
-                  className="min-w-0 text-left"
+                  className="fixed bottom-[4.75rem] right-3 z-[65] inline-flex items-center gap-1.5 rounded-full bg-[var(--panel)] px-3 py-2 text-[11px] font-semibold shadow-lg ring-1 ring-[var(--panel-border)] lg:hidden"
+                  onClick={() => setContactsOpen(true)}
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  Контакти
+                </button>
+              </div>
+            )
+          ) : null}
+
+          {contactsOpen && user && tab === 'feed' ? (
+            <div
+              className="fixed inset-0 z-[90] bg-black/45 lg:hidden"
+              onClick={() => setContactsOpen(false)}
+              role="presentation"
+            >
+              <div
+                className="absolute inset-y-0 right-0 flex w-[min(100vw,20rem)] flex-col bg-[var(--panel)] shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-[var(--panel-border)] px-3 py-2.5">
+                  <p className="text-xs font-semibold">Контакти</p>
+                  <button
+                    type="button"
+                    className="text-[11px] text-[var(--muted)]"
+                    onClick={() => setContactsOpen(false)}
+                  >
+                    Затвори
+                  </button>
+                </div>
+                <FeedRightRail
+                  className="min-h-0 flex-1 border-l-0"
+                  userId={user.id}
+                  friends={prefs.subscribers}
+                  conversations={prefs.conversations}
+                  onOpenFriend={(id) => {
+                    setContactsOpen(false)
+                    setFriendshipId(id)
+                    setTab('chats')
+                    setThreadOpen(false)
+                  }}
+                  onOpenPage={(id) => {
+                    setContactsOpen(false)
+                    openSocialSpace(id)
+                  }}
+                  onOpenGroup={(id) => {
+                    setContactsOpen(false)
+                    openSocialSpace(id)
+                  }}
+                  onOpenGames={() => undefined}
+                />
+              </div>
+            </div>
+          ) : null}
+          {tab !== 'feed' && threadOpen && workspace === 'business' ? (
+            <>
+            <BusinessToolRail
+              voiceBridgeOn={voiceBridgeOn}
+              onToggleVoiceBridge={() => setVoiceBridgeOn((v) => !v)}
+              salesAssistOn={salesAssistOn}
+              onToggleSalesAssist={() => setSalesAssistOn((v) => !v)}
+              prompt={salesPrompt}
+              sentiment={0.62 + (crmTick % 5) * 0.05}
+              battleCards={battleCards}
+              onOpenRecap={() => openBusinessIntelPicker()}
+              crmSalesforce={crmStatus.salesforce}
+              crmHubspot={crmStatus.hubspot}
+              onInviteGuest={() => void createInvite()}
+              inviteCopied={inviteCopied}
+            />
+            {prefs.experience.aiBusinessCoach !== false ||
+            prefs.experience.aiCultureAdvisor !== false ? (
+              <div className="ov-scroll max-h-48 shrink-0 border-b border-[var(--panel-border)] px-3 py-2">
+                <BusinessAiCoachPanel
+                  enabled={prefs.experience.aiBusinessCoach !== false}
+                  cultureEnabled={
+                    prefs.experience.aiCultureAdvisor !== false
+                  }
+                  partnerCountry={prefs.experience.partnerCountry || 'bg'}
+                  onCountryChange={(code) =>
+                    updatePrefs((c) => ({
+                      experience: { ...c.experience, partnerCountry: code },
+                    }))
+                  }
+                  contextHint={active?.title}
+                />
+              </div>
+            ) : null}
+            </>
+          ) : null}
+          {tab !== 'feed' && threadOpen && workspace === 'podcast' ? (
+            <PodcastToolRail
+              showTitle={active?.title || 'Untitled show'}
+              connectedPlatforms={connectedStreamPlatforms}
+              multistream={Boolean(prefs.podcast?.multistream)}
+              obsLive={obsLive}
+              onToggleObs={() => {
+                setObsLive((v) => !v)
+                showDragToast(obsLive ? 'OBS standby' : 'OBS output ON')
+              }}
+              shortQueued={shortQueued}
+              onCaptureShort={() => {
+                setShortQueued(true)
+                showDragToast(
+                  voiceBridgeOn
+                    ? '9:16 short + VoiceBridge субтитри'
+                    : '9:16 short queued'
+                )
+                window.setTimeout(() => setShortQueued(false), 4000)
+              }}
+              voiceBridgeOn={voiceBridgeOn}
+              onToggleVoiceBridge={() => setVoiceBridgeOn((v) => !v)}
+              resolution={prefs.podcast?.resolution || '1080p'}
+              layout={prefs.podcast?.layout || 'grid'}
+              onInviteGuest={() => void createInvite()}
+              inviteCopied={inviteCopied}
+              sessionMode={prefs.podcast?.sessionMode || 'podcast'}
+              streamScene={prefs.podcast?.streaming?.scene}
+              onSessionModeChange={(mode) =>
+                updatePrefs((current) => ({
+                  podcast: { ...current.podcast, sessionMode: mode },
+                }))
+              }
+              onOpenStreamSettings={() => {
+                setSettingsScope('full')
+                setSettingsTab('podcast')
+                setSettingsOpen(true)
+              }}
+            />
+          ) : null}
+          {tab !== 'feed' && threadOpen && active ? (
+            <>
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--panel-border)] px-3 py-2.5 sm:px-4 sm:py-3">
+                <button
+                  type="button"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-[var(--chip)]"
+                  onClick={closeThread}
+                  title="Назад"
+                  aria-label="Назад към списъка"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 overflow-hidden text-left"
                   onClick={() =>
                     setFriendshipId(active.members[0]?.id || active.id)
                   }
@@ -1768,36 +3800,54 @@ export default function DashboardPage() {
                   <p className="truncate text-sm font-semibold">{active.title}</p>
                   <p className="truncate text-xs text-[var(--muted)]">
                     {dragSubId
-                      ? 'Пусни абоната тук, за да го добавиш'
-                      : active.isGroup
-                        ? `${active.members.length} участници`
-                        : presenceLabel(active.members[0]?.presence || 'online')}
-                    {!dragSubId ? (
-                      <>
-                        {' · '}
-                        чат {active.saveChat ? 'се пази' : 'не се пази'}
-                        {active.disappearAfter !== 'off'
-                          ? ` · изчезва след ${active.disappearAfter}`
-                          : ''}
-                      </>
-                    ) : null}
+                      ? 'Пусни абоната тук'
+                      : active.roomKind === 'meet'
+                        ? 'Стая за мач · на леки сърца'
+                        : conversationSpace(active) === 'room'
+                          ? `Стая · ${active.members.length} участници`
+                          : `Разговор · ${presenceLabel(active.members[0]?.presence || 'online')}`}
                   </p>
                 </button>
-                <div className="flex items-center gap-1.5">
-                  <Link
-                    href={`/room/${active.id}`}
+                <div className="flex shrink-0 items-center gap-1">
+                  {active.roomKind === 'meet' ? (
+                    <button
+                      type="button"
+                      className="ov-btn-primary !px-2.5 !py-1.5 !text-[11px]"
+                      onClick={() => setMeetRoomOpen(true)}
+                      title="Отвори стаята за мач"
+                    >
+                      ✨ Мач
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="ov-btn-primary !hidden !px-2.5 !py-1.5 !text-[11px] sm:!inline-flex"
+                    onClick={() => void createInvite()}
+                    title="Покани guest"
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    {inviteCopied ? 'OK' : 'Guest'}
+                  </button>
+                  <button
+                    type="button"
                     className="ov-icon-btn"
                     title="Гласово в стая"
+                    onClick={() => {
+                      void enterLiveRoom(active.id, false)
+                    }}
                   >
                     <Phone className="h-4 w-4" />
-                  </Link>
-                  <Link
-                    href={`/room/${active.id}?video=1`}
+                  </button>
+                  <button
+                    type="button"
                     className="ov-icon-btn"
                     title="Видео стая"
+                    onClick={() => {
+                      void enterLiveRoom(active.id, true)
+                    }}
                   >
                     <Video className="h-4 w-4" />
-                  </Link>
+                  </button>
                   <button
                     type="button"
                     className="ov-icon-btn"
@@ -1815,6 +3865,30 @@ export default function DashboardPage() {
                   </button>
                 </div>
               </div>
+
+              {active.spaceFormat ? (
+                <SpaceAdminBar
+                  format={active.spaceFormat}
+                  isAdmin={canManageSpace(
+                    { adminUserId: active.adminUserId || '' },
+                    user.id
+                  )}
+                  members={active.members.map((m) => ({
+                    id: m.id,
+                    name: m.name,
+                  }))}
+                  interestTags={active.interestTags}
+                  onTransferAdmin={(toId) => {
+                    const who = active.members.find((m) => m.id === toId)
+                    patchConversation(active.id, { adminUserId: toId })
+                    showDragToast(
+                      who
+                        ? `Админ правата са предадени на ${who.name}`
+                        : 'Админ правата са предадени'
+                    )
+                  }}
+                />
+              ) : null}
 
               {active.members.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--panel-border)] px-4 py-2">
@@ -1877,24 +3951,23 @@ export default function DashboardPage() {
                 </select>
                 <button
                   type="button"
-                  className="ov-btn-ghost !px-3 !py-1 text-[11px]"
-                  onClick={() => createInvite()}
+                  className="ov-btn-primary !px-3 !py-1 text-[11px]"
+                  onClick={() => void createInvite()}
                 >
                   <Link2 className="h-3 w-3" />
-                  {inviteCopied ? 'Копирано' : 'Покани гост'}
+                  {inviteCopied ? 'Линк копиран' : 'Покани guest'}
                 </button>
-                <Link
-                  href={`/room/${active.id}`}
+                <button
+                  type="button"
                   className="ov-btn-primary !px-3 !py-1 text-[11px]"
-                  onClick={() =>
-                    patchConversation(active.id, { sessionOpen: true })
-                  }
+                  onClick={() => void enterLiveRoom(active.id, false)}
                 >
                   Влез в стаята
-                </Link>
+                </button>
               </div>
 
-              <div className="flex gap-2 overflow-x-auto border-b border-[var(--panel-border)] px-4 py-2">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="ov-scroll-x shrink-0 flex gap-2 border-b border-[var(--panel-border)] px-4 py-2">
                 <button
                   type="button"
                   className="flex shrink-0 flex-col items-center gap-1"
@@ -1943,11 +4016,17 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   className="flex shrink-0 flex-col items-center gap-1"
-                  onClick={() => void toggleLiveOnAir()}
+                  onClick={() => {
+                    if (workspace === 'podcast') {
+                      setLiveGoOpen(true)
+                      return
+                    }
+                    void toggleLiveOnAir()
+                  }}
                   title={
                     liveOnAir
                       ? 'Спри ON AIR'
-                      : 'Стартирай Live · ON AIR + влез в стаята'
+                      : 'Стартирай Live · YouTube / RTMP'
                   }
                 >
                   <span
@@ -1968,27 +4047,75 @@ export default function DashboardPage() {
                     {liveOnAir ? 'ON AIR' : 'Live'}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  className="flex shrink-0 flex-col items-center gap-1"
-                  onClick={() => {
-                    if (!(user.plan === 'business' || user.plan === 'podcast' || admin)) {
-                      showDragToast('CRM сделки · Business / Podcast')
-                      router.push('/checkout?plan=business')
-                      return
-                    }
-                    setDealComposerOpen(true)
-                  }}
-                  title="Добави CRM сделка в чата"
-                >
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-yellow-600 text-xs font-bold text-white">
-                    D
-                  </span>
-                  <span className="text-[10px] text-[var(--muted)]">CRM</span>
-                </button>
+                {workspace === 'business' || admin ? (
+                  <button
+                    type="button"
+                    className="flex shrink-0 flex-col items-center gap-1"
+                    onClick={() => setDealComposerOpen(true)}
+                    title="Добави CRM сделка в чата"
+                  >
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-yellow-600 text-xs font-bold text-white">
+                      D
+                    </span>
+                    <span className="text-[10px] text-[var(--muted)]">CRM</span>
+                  </button>
+                ) : null}
+                {workspace === 'podcast' ? (
+                  <button
+                    type="button"
+                    className="flex shrink-0 flex-col items-center gap-1"
+                    onClick={() => {
+                      setShortQueued(true)
+                      showDragToast('Clip marker · 9:16 short')
+                      window.setTimeout(() => setShortQueued(false), 2500)
+                    }}
+                    title="Маркирай момент за short"
+                  >
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-600 text-xs font-bold text-white">
+                      S
+                    </span>
+                    <span className="text-[10px] text-[var(--muted)]">Short</span>
+                  </button>
+                ) : null}
               </div>
 
-              <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+              {active.spaceFormat &&
+              active.spaceFormat !== 'group' ? (
+                <PageWall
+                  convId={active.id}
+                  currentUserId={user.id}
+                  currentUserName={user.displayName || user.fullName}
+                  writerLang={user.nativeLanguage || 'bg'}
+                  readerLang={user.nativeLanguage || 'bg'}
+                  plan={user.plan}
+                  bonusChars={prefs.translateBonusChars || 0}
+                  canFollow={
+                    active.adminUserId !== user.id &&
+                    (active.allowCrossPlanFollow !== false ||
+                      active.followPolicy === 'public')
+                  }
+                  isFollowing={(active.followerIds || []).includes(user.id)}
+                  onToggleFollow={() => toggleFollowPage(active.id)}
+                  onGoLive={(cover) => {
+                    updatePrefs((current) => ({
+                      room: {
+                        ...current.room,
+                        cutoutMode: 'contour',
+                        virtualBackground: true,
+                        customBackground: cover,
+                      },
+                    }))
+                    showDragToast(
+                      cover
+                        ? 'Page → Live · cover като фон + cutout'
+                        : 'Page → Live · влизаш в стаята'
+                    )
+                    router.push(`/room/${active.id}?video=1`)
+                  }}
+                />
+              ) : null}
+
+              <div className="ov-scroll min-h-0 flex-1 space-y-3 px-4 py-4 pb-6">
                 {active.messages
                   .filter((msg) => {
                     if (active.disappearAfter === 'off' || active.saveChat) {
@@ -2014,8 +4141,47 @@ export default function DashboardPage() {
                     />
                   ))}
               </div>
+              </div>
 
-              <footer className="border-t border-[var(--panel-border)] p-3">
+
+              <footer className="shrink-0 border-t border-[var(--panel-border)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                {prefs.chat.allowRecording !== false ? (
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                        recording
+                          ? 'bg-rose-500 text-white'
+                          : 'bg-[var(--chip)] text-[var(--muted)]'
+                      }`}
+                      onClick={() => {
+                        bumpFeatureUse('recording')
+                        setRecording((v) => !v)
+                        showDragToast(
+                          recording
+                            ? 'Записът е спрян (локален маркер)'
+                            : 'Записът е пуснат · всички планове'
+                        )
+                        if (!recording) {
+                          appendMessage({
+                            text: '⏺ Записът на разговора започна',
+                          })
+                        } else {
+                          appendMessage({
+                            text: '⏹ Записът е спрян',
+                          })
+                        }
+                      }}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          recording ? 'animate-pulse bg-white' : 'bg-rose-500'
+                        }`}
+                      />
+                      {recording ? 'Записва…' : 'Запис'}
+                    </button>
+                  </div>
+                ) : null}
                 <ChatComposer
                   draft={draft}
                   onDraftChange={setDraft}
@@ -2023,34 +4189,107 @@ export default function DashboardPage() {
                   peerLanguage={active.members[0]?.language || user?.nativeLanguage || 'bg'}
                   replyPreview={replyPreview}
                   onClearReply={() => setReplyPreview(null)}
-                  showDeal={user?.plan === 'business' || admin}
-                  showClip={user?.plan === 'podcast' || admin}
+                  showDeal={workspace === 'business' || admin}
+                  showClip={workspace === 'podcast' || admin}
                   allowVoice={prefs.chat.voiceMessages !== false}
                   onSend={(partial) => appendMessage(partial)}
                 />
               </footer>
             </>
-          ) : (
+          ) : tab !== 'feed' ? (
             <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
               <MessageCircle className="h-8 w-8 text-[var(--accent)]" />
-              <p className="mt-3 text-sm font-semibold">Няма избрана стая</p>
+              <p className="mt-3 text-sm font-semibold">
+                {tab === 'chats' ? 'Избери чат' : 'Избери страница или стая'}
+              </p>
               <p className="mt-1 text-xs text-[var(--muted)]">
                 {dragSubId
                   ? 'Пусни абоната върху стая вляво'
-                  : 'Създай нова стая с богатите опции или избери разговор вляво'}
+                  : 'Кликни върху елемент вляво — отваря се чак след избор'}
               </p>
-              <button
-                type="button"
-                className="ov-btn-primary mt-4 !px-4 !py-2 text-xs"
-                onClick={() => setCreateRoomOpen(true)}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Създай стая
-              </button>
+              {tab === 'rooms' ? (
+                <button
+                  type="button"
+                  className="ov-btn-primary mt-4 !px-4 !py-2 text-xs"
+                  onClick={() => setCreateRoomOpen(true)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Създай стая
+                </button>
+              ) : null}
             </div>
-          )}
+          ) : null}
         </section>
       </div>
+
+      {!threadOpen && !profileOpen && !settingsOpen && !appearanceOpen ? (
+        <nav
+          className="fixed inset-x-0 bottom-0 z-[70] flex border-t border-[var(--panel-border)] bg-[var(--panel)]/95 px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur-xl lg:hidden"
+          aria-label="Навигация"
+        >
+          {(
+            [
+              ['feed', 'Начало', Newspaper],
+              ['chats', 'Чатове', MessageCircle],
+            ] as const
+          ).map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                setTab(id)
+                setInboxFilter('all')
+                setThreadOpen(false)
+                setProfileOpen(false)
+                setSettingsOpen(false)
+                if (id === 'feed') setSocialView(null)
+              }}
+              className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[10px] font-semibold ${
+                tab === id
+                  ? 'text-[var(--accent)]'
+                  : 'text-[var(--muted)]'
+              }`}
+            >
+              <Icon className="h-5 w-5" />
+              {label}
+            </button>
+          ))}
+        </nav>
+      ) : null}
+
+      {prefs.music?.enabled &&
+      prefs.music?.source === 'spotify' &&
+      parseSpotifyUrl(prefs.music.spotifyUrl || '') ? (
+        <div className="fixed bottom-3 right-3 z-[85] w-[min(calc(100vw-1.5rem),22rem)] overflow-hidden rounded-2xl border border-[#1DB954]/35 bg-black/90 shadow-2xl">
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[#1DB954]">
+              Spotify
+            </span>
+            <button
+              type="button"
+              className="text-[10px] text-white/60 hover:text-white"
+              onClick={() =>
+                updatePrefs((c) => ({
+                  music: { ...c.music, enabled: false },
+                }))
+              }
+            >
+              Спри
+            </button>
+          </div>
+          <iframe
+            title="Spotify"
+            src={parseSpotifyUrl(prefs.music.spotifyUrl)!.embedUrl}
+            width="100%"
+            height="80"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            loading="lazy"
+            className="block w-full"
+          />
+        </div>
+      ) : null}
+
+      <InstallAppButton variant="banner" />
 
       {dragToast ? (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-[90] -translate-x-1/2 rounded-full bg-[var(--foreground)] px-4 py-2 text-xs font-semibold text-[var(--background)] shadow-lg">
@@ -2184,11 +4423,24 @@ export default function DashboardPage() {
         open={createRoomOpen}
         userPlan={user.plan}
         isAdmin={admin}
-        customRooms={prefs.room.customStudioRooms || []}
+        customRooms={prefs.room.customStudioRooms || EMPTY_CUSTOM_ROOMS}
+        aiRooms={prefs.aiRooms}
+        onSaveAiRoom={saveAiRoom}
         defaultLanguage={user.nativeLanguage || 'bg'}
         busy={creatingRoom}
         onClose={() => setCreateRoomOpen(false)}
         onCreate={(draft) => void createRoomFromDraft(draft)}
+        allowedPageFormats={allowedPageFormatsForUser(user)}
+        ownedPageFormats={prefs.conversations
+          .filter(
+            (c) =>
+              c.adminUserId === user.id &&
+              (c.spaceFormat === 'page' ||
+                c.spaceFormat === 'business' ||
+                c.spaceFormat === 'podcast')
+          )
+          .map((c) => c.spaceFormat!)
+        }
       />
       <AppearancePanel
         open={appearanceOpen}
@@ -2199,10 +4451,27 @@ export default function DashboardPage() {
       <SettingsPanel
         open={settingsOpen}
         initialTab={settingsTab}
+        scope={settingsScope}
         onClose={() => setSettingsOpen(false)}
         onOpenRegister={() => router.push('/register')}
       />
       <ContactImportModal open={importOpen} onClose={() => setImportOpen(false)} />
+      <LiveGoPanel
+        open={liveGoOpen}
+        onClose={() => setLiveGoOpen(false)}
+        platforms={prefs.podcast.platforms}
+        liveOnAir={liveOnAir}
+        quotaLabel={user ? formatLiveQuotaLabel(user.plan) : undefined}
+        onToggleLive={() => {
+          void toggleLiveOnAir()
+        }}
+        onOpenSettings={() => {
+          setLiveGoOpen(false)
+          setSettingsScope('full')
+          setSettingsTab('platforms')
+          setSettingsOpen(true)
+        }}
+      />
       <ProfileHub
         open={profileOpen}
         user={user}
@@ -2217,6 +4486,8 @@ export default function DashboardPage() {
         }
         onPresenceChange={(presence) => updatePrefs({ presence })}
         onOpenSettings={() => {
+          // Keep profile under settings — closing settings returns to profile
+          setSettingsScope('full')
           setSettingsTab('account')
           setSettingsOpen(true)
         }}
@@ -2280,9 +4551,80 @@ export default function DashboardPage() {
         }}
       />
 
-      <StudioMap
+      <MeetMatchModal
+        open={meetMatchOpen}
+        state={prefs.meetMatch || DEFAULT_MEET_MATCH}
+        defaultName={user.displayName || user.fullName}
+        onClose={() => setMeetMatchOpen(false)}
+        onSaveProfile={(profile: MeetMatchProfile) =>
+          patchMeetMatch({ profile })
+        }
+        onPass={(id) =>
+          patchMeetMatch((s) => ({
+            ...s,
+            passedIds: [...s.passedIds, id],
+          }))
+        }
+        onLike={handleMeetLike}
+      />
+
+      <MeetMatchRoom
+        open={meetRoomOpen}
+        conversation={
+          prefs.conversations.find(
+            (c) =>
+              c.id === activeId &&
+              (c.roomKind === 'meet' || isMeetConversationId(c.id))
+          ) || null
+        }
+        myName={user.displayName || user.fullName}
+        myLanguage={user.nativeLanguage || 'bg'}
+        meetState={prefs.meetMatch || DEFAULT_MEET_MATCH}
+        peerPhoto={
+          prefs.conversations.find((c) => c.id === activeId)?.members[0]
+            ?.avatarDataUrl
+        }
+        onClose={() => setMeetRoomOpen(false)}
+        onSend={(partial, conversationId) =>
+          appendMessage(partial, conversationId)
+        }
+        onAfterSend={handleMeetRoomSend}
+        onPatchRoom={handleMeetPatchRoom}
+        onUnmatch={handleMeetUnmatch}
+        onReport={handleMeetReport}
+        onToast={showDragToast}
+        onVoiceCall={() => {
+          if (activeId) void enterLiveRoom(activeId, false)
+        }}
+        onVideoCall={() => {
+          if (activeId) void enterLiveRoom(activeId, true)
+        }}
+      />
+
+      <WorldPresenceMap
         open={mapOpen}
-        nodes={mapNodes}
+        nodes={mapNodes.map((n) => ({
+          ...n,
+          geo:
+            n.isMe && prefs.profileSocial?.geoShare?.enabled
+              ? prefs.profileSocial.geoShare.last || null
+              : null,
+        }))}
+        contacts={prefs.subscribers
+          .filter((s) => s.status !== 'blocked')
+          .map((s) => ({
+            id: s.id,
+            name: s.name,
+            presence: s.presence,
+            avatarUrl: s.avatarDataUrl,
+          }))}
+        circleIds={findMyCircleIds}
+        gpsEnabled={Boolean(prefs.profileSocial?.geoShare?.enabled)}
+        myGeo={
+          prefs.profileSocial?.geoShare?.enabled
+            ? prefs.profileSocial.geoShare.last || null
+            : null
+        }
         onClose={() => setMapOpen(false)}
         onSelect={(nodeId) => {
           setMapOpen(false)
@@ -2292,6 +4634,64 @@ export default function DashboardPage() {
           }
           setFriendshipId(nodeId)
         }}
+        onToggleCircle={(contactId) =>
+          updatePrefs((current) => {
+            const ids = current.profileSocial.geoShare?.circleIds || []
+            const next = ids.includes(contactId)
+              ? ids.filter((id) => id !== contactId)
+              : [...ids, contactId]
+            return {
+              profileSocial: {
+                ...current.profileSocial,
+                geoShare: {
+                  ...current.profileSocial.geoShare,
+                  circleIds: next,
+                },
+              },
+            }
+          })
+        }
+        onEnableGps={() =>
+          updatePrefs((current) => ({
+            profileSocial: {
+              ...current.profileSocial,
+              geoShare: {
+                ...current.profileSocial.geoShare,
+                enabled: true,
+                precision: 'precise',
+                circleIds: current.profileSocial.geoShare?.circleIds || [],
+              },
+              showOnMap: true,
+            },
+          }))
+        }
+        onDisableGps={() =>
+          updatePrefs((current) => ({
+            profileSocial: {
+              ...current.profileSocial,
+              geoShare: {
+                ...current.profileSocial.geoShare,
+                enabled: false,
+                last: null,
+                circleIds: current.profileSocial.geoShare?.circleIds || [],
+              },
+            },
+          }))
+        }
+        onRefreshGps={(point) =>
+          updatePrefs((current) => ({
+            profileSocial: {
+              ...current.profileSocial,
+              geoShare: {
+                ...current.profileSocial.geoShare,
+                enabled: true,
+                last: point,
+                circleIds: current.profileSocial.geoShare?.circleIds || [],
+              },
+              locationLabel: `${point.lat.toFixed(3)}°, ${point.lng.toFixed(3)}°`,
+            },
+          }))
+        }
       />
 
       <MemoriesVault
@@ -2349,6 +4749,83 @@ export default function DashboardPage() {
         }}
       />
 
+      {friendSheetId ? (
+        <FriendActionSheet
+          open
+          name={
+            prefs.subscribers.find((s) => s.id === friendSheetId)?.name ||
+            'Приятел'
+          }
+          onClose={() => setFriendSheetId(null)}
+          onCall={() => {
+            const sub = prefs.subscribers.find((s) => s.id === friendSheetId)
+            if (sub) setOperatorCall({ name: sub.name })
+          }}
+          onChat={() => {
+            startConversationFromSubscriber(friendSheetId)
+            setTab('chats')
+          }}
+          onProfile={() => {
+            setFriendshipId(friendSheetId)
+          }}
+          onInviteGroup={() => {
+            startConversationFromSubscriber(friendSheetId)
+            setTab('rooms')
+            setDragSubId(friendSheetId)
+            showDragToast('Избери група/стая вляво или пусни абоната върху стая')
+          }}
+          onBlock={() => {
+            const sub = prefs.subscribers.find((s) => s.id === friendSheetId)
+            if (!sub) return
+            updatePrefs((current) => ({
+              blocked: [
+                {
+                  id: sub.id,
+                  name: sub.name,
+                  reason: 'Ръчно',
+                  blockedAt: new Date().toISOString(),
+                },
+                ...current.blocked.filter((b) => b.id !== sub.id),
+              ],
+              subscribers: current.subscribers.map((s) =>
+                s.id === sub.id ? { ...s, status: 'blocked' as const } : s
+              ),
+            }))
+            showDragToast(`${sub.name} е блокиран/а`)
+          }}
+          onDelete={() => {
+            updatePrefs((current) => ({
+              subscribers: current.subscribers.filter(
+                (s) => s.id !== friendSheetId
+              ),
+            }))
+            showDragToast('Премахнат от приятели')
+          }}
+        />
+      ) : null}
+
+      <OperatorVoiceCall
+        open={Boolean(operatorCall)}
+        name={operatorCall?.name || ''}
+        onHangup={() => setOperatorCall(null)}
+        onJoinFullRoom={() => {
+          const sub = prefs.subscribers.find(
+            (s) => s.name === operatorCall?.name
+          )
+          const started = sub
+            ? startConversationFromSubscriber(sub.id)
+            : undefined
+          setOperatorCall(null)
+          if (started) void enterLiveRoom(started.id, false)
+        }}
+      />
+
+      <HelpReportModal
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        isAdmin={admin}
+      />
+
       {friendshipTarget ? (
         <FriendshipProfile
           open={Boolean(friendshipId)}
@@ -2371,45 +4848,144 @@ export default function DashboardPage() {
               (s) => s.id === friendshipTarget.id
             )
             if (sub) startConversationFromSubscriber(sub.id)
-            else setActiveId(friendshipTarget.id)
+            else openThread(friendshipTarget.id, 'chats')
             setFriendshipId(null)
-            setTab('chats')
           }}
           onCall={() => {
-            const sub = prefs.subscribers.find(
-              (s) => s.id === friendshipTarget.id
-            )
-            if (sub) startConversationFromSubscriber(sub.id)
-            const conv =
-              prefs.conversations.find(
-                (c) =>
-                  c.id === friendshipTarget.id ||
-                  (!c.isGroup && c.title === friendshipTarget.name)
-              ) || active
-            if (conv) router.push(`/room/${conv.id}`)
             setFriendshipId(null)
+            setOperatorCall({ name: friendshipTarget.name })
           }}
           onVideo={() => {
             const sub = prefs.subscribers.find(
               (s) => s.id === friendshipTarget.id
             )
-            if (sub) startConversationFromSubscriber(sub.id)
+            const started = sub
+              ? startConversationFromSubscriber(sub.id)
+              : undefined
             const conv =
+              started ||
               prefs.conversations.find(
                 (c) =>
                   c.id === friendshipTarget.id ||
                   (!c.isGroup && c.title === friendshipTarget.name)
-              ) || active
-            if (conv) router.push(`/room/${conv.id}?video=1`)
+              ) ||
+              active
+            if (conv) void enterLiveRoom(conv.id, true)
             setFriendshipId(null)
           }}
           onNoteChange={(note) =>
-            updatePrefs({
-              snapPlus: bumpFriendship(snap, friendshipTarget.id, { note }),
-            })
+            updatePrefs((current) => ({
+              snapPlus: bumpFriendship(
+                current.snapPlus,
+                friendshipTarget.id,
+                { note }
+              ),
+            }))
           }
         />
       ) : null}
+
+      {inviteShare ? (
+        <InviteShareSheet
+          url={inviteShare.url}
+          label={inviteShare.label}
+          onClose={() => setInviteShare(null)}
+          onEnterRoom={
+            inviteShare.roomId
+              ? () => {
+                  const id = inviteShare.roomId
+                  if (id) void enterLiveRoom(id, true)
+                }
+              : undefined
+          }
+        />
+      ) : null}
+
+      <CallRecap
+        open={recapOpen && workspace === 'business'}
+        data={intelData}
+        loading={intelLoading}
+        error={intelError}
+        selecting={intelSelecting}
+        selectedOptions={intelOptions}
+        onSelectedOptionsChange={setIntelOptions}
+        onClose={() => {
+          setRecapOpen(false)
+          setIntelSelecting(true)
+        }}
+        onGenerate={(opts) => void runDashboardIntel(opts)}
+        onChangeOptions={() => {
+          setIntelSelecting(true)
+          setIntelData(null)
+          setIntelError(null)
+        }}
+        onCopy={() => {
+          if (!intelData) return
+          void navigator.clipboard.writeText(
+            formatIntelForClipboard(intelData, intelOptions)
+          )
+          showDragToast('Intel копиран')
+        }}
+        onCopyAgreement={() => {
+          if (!intelData) return
+          void navigator.clipboard.writeText(
+            formatAgreementForClipboard(intelData)
+          )
+          showDragToast('Устен договор копиран')
+        }}
+        onCopyContract={() => {
+          if (!intelData) return
+          void navigator.clipboard.writeText(
+            formatWrittenContractForClipboard(intelData)
+          )
+          showDragToast('Писмен договор копиран')
+        }}
+        onSave={() => {
+          if (!intelData || !active) return
+          const summaryLine = `🧠 AI Intel: ${intelData.title} — ${(intelData.summary || intelData.writtenContract || '').slice(0, 120)}`
+          appendMessage({
+            text: summaryLine,
+            kind: 'intel',
+            intelSummary: intelData.summary || intelData.writtenContract,
+          })
+          updatePrefs((current) => ({
+            snapPlus: {
+              ...current.snapPlus,
+              memories: [
+                {
+                  id: `mem_intel_${Date.now()}`,
+                  kind: 'intel' as const,
+                  title: intelData.title,
+                  body: formatIntelForClipboard(intelData, intelOptions),
+                  locked: false,
+                  createdAt: new Date().toISOString(),
+                  tags: ['business', 'intel'],
+                },
+                ...(current.snapPlus?.memories || []),
+              ].slice(0, 80),
+            },
+          }))
+          showDragToast('Запазено в чат + Memories')
+        }}
+        youName={user?.displayName}
+        peerName={active?.members[0]?.name}
+        youEmail={user?.email}
+        requireSignConsent={
+          prefs.experience?.businessRoom?.requireSignConsent !== false
+        }
+        sealOnFirstSign={
+          prefs.experience?.businessRoom?.sealOnFirstSign !== false
+        }
+        autoOpenSigner={Boolean(
+          prefs.experience?.businessRoom?.autoOpenSigner
+        )}
+        legalBinding={
+          prefs.experience?.businessRoom?.signatureMode !== 'acknowledgment'
+        }
+        preferredLegalProvider={
+          prefs.experience?.businessRoom?.preferredLegalProvider || 'yousign'
+        }
+      />
     </div>
   )
 }
@@ -2427,10 +5003,12 @@ function MenuItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-[var(--chip)]"
+      className="flex w-full min-w-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--chip)]"
     >
-      <Icon className="h-4 w-4 text-[var(--muted)]" />
-      {label}
+      <Icon className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+      <span className="min-w-0 flex-1 break-words leading-snug [overflow-wrap:anywhere]">
+        {label}
+      </span>
     </button>
   )
 }

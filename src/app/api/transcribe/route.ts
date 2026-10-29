@@ -30,8 +30,8 @@ export async function POST(request: NextRequest) {
     const hint = String(form.get('lang') || '').trim().slice(0, 16)
 
     const prompt = hint
-      ? `Transcribe this speech (likely language code: ${hint}). Return ONLY the spoken words, no labels or quotes.`
-      : 'Transcribe this speech. Return ONLY the spoken words, no labels or quotes.'
+      ? `Transcribe ONLY what is clearly audible in this recording (language hint: ${hint}). Return the exact spoken words and nothing else. If speech is unclear, silent, music-only, or empty, return an empty string. Never invent or guess words.`
+      : 'Transcribe ONLY what is clearly audible. Return exact spoken words only. If unclear or silent, return an empty string. Never invent words.'
 
     // Prefer models verified working with current GEMINI_API_KEY
     const models = [

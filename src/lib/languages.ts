@@ -30,7 +30,42 @@ export const APP_LANGUAGES: AppLanguage[] = [
 ]
 
 export function getLanguage(code: string): AppLanguage {
-  return APP_LANGUAGES.find((lang) => lang.code === code) || APP_LANGUAGES[1]
+  const normalized = code.trim().toLowerCase()
+  return (
+    APP_LANGUAGES.find((lang) => lang.code === normalized) ||
+    APP_LANGUAGES.find((lang) => normalized.startsWith(lang.code)) ||
+    APP_LANGUAGES[1]
+  )
+}
+
+/** ISO code only (bg, en, tr…) — for VoiceBridge compare across peers */
+export function normalizeLangCode(code: string | null | undefined): string {
+  const raw = (code || '').trim()
+  if (!raw) return ''
+  return getLanguage(raw).code.toLowerCase()
+}
+
+export function isAppLanguageCode(code: string | null | undefined): boolean {
+  const c = normalizeLangCode(code)
+  return Boolean(c && APP_LANGUAGES.some((l) => l.code === c))
+}
+
+/** Resolve BCP-47 speech code from ISO code or English/native language name */
+export function resolveSpeechCode(language: string): string {
+  const value = language.trim().toLowerCase()
+  if (!value) return 'en-US'
+  const byCode = APP_LANGUAGES.find(
+    (lang) => lang.code === value || value.startsWith(`${lang.code}-`)
+  )
+  if (byCode) return byCode.speechCode
+  const byName = APP_LANGUAGES.find(
+    (lang) =>
+      lang.name.toLowerCase() === value ||
+      lang.nativeName.toLowerCase() === value ||
+      value.includes(lang.name.toLowerCase())
+  )
+  if (byName) return byName.speechCode
+  return 'en-US'
 }
 
 export type PlanId = 'free' | 'business' | 'podcast'
@@ -52,11 +87,11 @@ export const PLANS: Record<
     price: 'Free',
     description: 'Messenger chat + personal translated calls',
     features: [
-      'Messenger chat + calls',
-      '2 ambient music tracks',
-      'Guest links (if room owner allows)',
-      'Phrasebook + smart replies',
-      'Light / Dark mode',
+      'Messenger + общностни стаи (колеги / приятели / клуб…)',
+      'GPS карта (opt-in) · OpenStreetMap за целия свят',
+      'Гледане заедно live · Streaming пакет',
+      'AI cutout по контур · VoiceBridge™',
+      'Guest links · Phrasebook · теми',
     ],
     secretaryPhone: false,
   },
@@ -64,16 +99,16 @@ export const PLANS: Record<
     id: 'business',
     label: 'Business',
     price: 'Paid',
-    description: 'AI secretary, CRM, sales coaching',
+    description: 'Revenue Desk — CRM + AI sales coach (като Gong/Dialpad)',
     features: [
-      'Everything in Normal',
-      'Paywall преди дашборда',
-      'AI secretary → phone',
-      'Contact import (Google/FB/Phone)',
-      'Call recap + emotion-safe tone',
-      'CRM / battle cards / dual-track',
-      '5 ambient music tracks',
-      'Business виртуални офиси + собствени стаи',
+      'Отделен Revenue Desk UI (не Messenger)',
+      'Pipeline: Discovery → Demo → Negotiation → Won',
+      'AI секретар → телефон 24/7',
+      'Live sales coach + sentiment + battle cards',
+      'Call recap + законен eIDAS/ESIGN подпис (Yousign/DocuSign)',
+      'Пълен Streaming пакет (alerts · polls · raids · VOD…)',
+      'VoiceBridge™ dual-track — всеки чува на своя език',
+      'Salesforce / HubSpot · 5 ambient tracks',
     ],
     secretaryPhone: true,
   },
@@ -81,14 +116,17 @@ export const PLANS: Record<
     id: 'podcast',
     label: 'Podcast & Streaming',
     price: 'Paid',
-    description: 'Multi-host studio + OBS + shorts',
+    description: 'Studio Control — без конкуренция на live + VoiceBridge',
     features: [
-      'Everything in Business',
-      'Paywall преди дашборда',
-      'YouTube / TikTok / Facebook multistream',
-      'OBS + 9:16 shorts + VOD',
-      'Full premium music library',
-      'Podcast студиа + green screen + собствени стаи',
+      'Отделен Studio Control UI (не Messenger)',
+      'Подкаст стая + Streaming (Twitch/YT/Kick/Streamlabs пакет)',
+      'Multistream RTMP · OBS · 9:16 shorts · VOD/DVR',
+      'Channel points · Hype · Polls · Predictions · Raids',
+      'Watch Together live · сериали · футбол · sync',
+      'AI cutout (MediaPipe multiclass) · точен контур',
+      'Интерактивни субтитри всеки език + AI Moments',
+      'VoiceBridge™ dual-audio — само OmniVoice',
+      'AI продуцент бележки · multilingual mod bot',
     ],
     secretaryPhone: true,
   },

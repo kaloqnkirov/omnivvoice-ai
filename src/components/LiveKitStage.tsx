@@ -23,7 +23,7 @@ import {
 } from 'livekit-client'
 
 /** Visible on the yellow Allow button — proves the phone loaded this build */
-const MEDIA_BUILD = 'cam18'
+const MEDIA_BUILD = 'cam19'
 import {
   BackgroundProcessor,
   supportsBackgroundProcessors,
@@ -101,6 +101,8 @@ export type LiveKitStageHandle = {
     wantCamera?: boolean
     streamPromise?: Promise<MediaStream>
   }) => Promise<boolean>
+  /** Browser autoplay unlock — required or remote mic is silent */
+  unlockRemoteAudio: () => Promise<void>
 }
 
 type Props = {
@@ -499,7 +501,7 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
     pipCorner = 'br',
     contentHint = 'screenshare',
     silhouetteReactions = [],
-    duckRawRemoteMic = true,
+    duckRawRemoteMic = false,
     silencePublishedMic = false,
     onVoiceBridge,
     onRemoteLanguages,
@@ -613,16 +615,45 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
   }
 
   /**
-   * Translation mode: mute raw remote mic ONLY while our TTS is playing
-   * the translation. If VoiceBridge/STT misses a phrase, raw audio still
-   * comes through — never permanent silence.
-   * Mobile Chrome often ignores volume=0 — must also set muted + LiveKit setVolume.
+   * Hear remote mic whenever speaker is on. Optional duck only while TTS
+   * is actively speaking — never leave the call in permanent silence.
    */
   function wantHearRawRemoteMic() {
     if (!speakerOnRef.current) return false
     if (!duckRawRef.current) return true
-    // Duck under TTS only; otherwise keep raw as safety net
     return !isTtsSpeaking()
+  }
+
+  /** Chrome/iOS block WebRTC playback until startAudio() runs in a user gesture */
+  async function ensureRemoteAudioPlayback() {
+    const room = roomRef.current
+    if (room) {
+      try {
+        await room.startAudio()
+      } catch {
+        /* ignore */
+      }
+    }
+    remoteAudioTracks.current.forEach((track) => {
+      try {
+        track.setVolume?.(1)
+      } catch {
+        /* ignore */
+      }
+    })
+    remoteAudioRef.current?.querySelectorAll('audio').forEach((node) => {
+      const el = node as HTMLAudioElement
+      if (!speakerOnRef.current) {
+        el.muted = true
+        el.volume = 0
+        return
+      }
+      // Force audible unless TTS is mid-duck
+      const hear = wantHearRawRemoteMic()
+      el.muted = !hear
+      el.volume = hear ? 1 : 0
+      void el.play().catch(() => undefined)
+    })
   }
 
   function applyRawRemotePolicy(
@@ -1046,11 +1077,7 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
         }
       }
 
-      remoteAudioRef.current?.querySelectorAll('audio').forEach((node) => {
-        const el = node as HTMLAudioElement
-        const id = el.dataset.identity || ''
-        applyRawRemotePolicy(el, remoteAudioTracks.current.get(id) || null)
-      })
+      await ensureRemoteAudioPlayback()
       if (!isStale()) {
         setMediaNeedsTap(false)
         onMicReady?.()
@@ -1113,6 +1140,7 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
     getRemoteLanguages: collectRemoteLanguages,
     getLocalIdentity: () => roomRef.current?.localParticipant?.identity ?? null,
     armLocalMedia,
+    unlockRemoteAudio: () => ensureRemoteAudioPlayback(),
   }))
 
   async function stopProcessor(track: LocalVideoTrack | null) {
@@ -1630,6 +1658,7 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
             // Translation on → muted + volume 0 (still subscribed so TTS path stays healthy)
             applyRawRemotePolicy(el, track)
             host.appendChild(el)
+            void ensureRemoteAudioPlayback()
             syncRemotesList()
             return
           }
@@ -1740,6 +1769,18 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
           return
         }
 
+        // Critical: without startAudio(), Chrome/iOS keep remote mics silent
+        try {
+          await room.startAudio()
+        } catch {
+          /* need a later user tap — armLocalMedia / unlockRemoteAudio */
+        }
+
+        room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+          if (!room.canPlaybackAudio) return
+          void ensureRemoteAudioPlayback()
+        })
+
         // Ensure peers see our speaking language (needed for VoiceBridge)
         try {
           await room.localParticipant.setMetadata(
@@ -1759,6 +1800,7 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
         })
         syncRemotesList()
         notifyLanguages()
+        void ensureRemoteAudioPlayback()
 
         const video = videoTrackRef.current
         const audio = audioTrackRef.current

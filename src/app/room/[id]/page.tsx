@@ -2562,14 +2562,16 @@ function RoomInner() {
             pipCorner={streamPrefs?.pipCorner || 'br'}
             contentHint={streamPrefs?.contentHint || 'screenshare'}
             silhouetteReactions={isStreamingMode ? pipReactions : []}
-            // Receiver silences raw remote mic (unsubscribe). Do NOT mute our
-            // published track — on phones mute() kills Web Speech STT so the
-            // guest never sends VoiceBridge and you only hear English.
-            duckRawRemoteMic={translationOn}
+            // Duck OFF until startAudio + VoiceBridge are solid — permanent
+            // mute caused "no sound at all". TTS still speaks BG on top.
+            duckRawRemoteMic={false}
             silencePublishedMic={false}
             onVoiceBridge={onVoiceBridgePacket}
             onRemoteLanguages={onRemoteLanguages}
-            onMicReady={() => setMicReady(true)}
+            onMicReady={() => {
+              setMicReady(true)
+              void stageRef.current?.unlockRemoteAudio?.()
+            }}
             studioRoomId={stageStudioId}
             customBackground={stageCustomBg}
             customStudioRooms={stageCustomRooms}
@@ -2788,18 +2790,19 @@ function RoomInner() {
             onClick={() => {
               unlockMediaPlayback()
               unlockSpeechSynthesis()
+              void stageRef.current?.unlockRemoteAudio?.()
               void speakText(
                 nativeLang.code === 'bg'
-                  ? 'Готово. Ще чуваш на български.'
+                  ? 'Готово. Ще чуваш превод на български.'
                   : nativeLang.code === 'en'
-                    ? 'Ready. You will hear English only.'
+                    ? 'Ready. You will hear English.'
                     : 'OK',
                 { lang: nativeLang.speechCode }
               )
               setTtsUnlocked(true)
             }}
           >
-            Докосни: чувам само {nativeLang.flag} {nativeLang.nativeName}
+            Докосни за звук + превод ({nativeLang.flag} {nativeLang.nativeName})
           </button>
         ) : null}
 

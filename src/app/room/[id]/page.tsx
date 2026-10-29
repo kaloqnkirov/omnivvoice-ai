@@ -85,6 +85,7 @@ import {
   type GuestStagePrefs,
 } from '@/lib/guest-session'
 import type { StageCutout } from '@/lib/stage-cutout'
+import { useRemotePeerStt } from '@/hooks/useRemotePeerStt'
 import { useRoomSync } from '@/hooks/useRoomSync'
 import {
   APP_LANGUAGES,
@@ -297,6 +298,10 @@ function RoomInner() {
 
   const [micOn, setMicOn] = useState(true)
   const [micReady, setMicReady] = useState(false)
+  /** Remote LiveKit mic tracks — host STT when guest has no Web Speech */
+  const [remoteSttTracks, setRemoteSttTracks] = useState<
+    Array<{ identity: string; track: MediaStreamTrack }>
+  >([])
   const [ttsUnlocked, setTtsUnlocked] = useState(false)
   const [intelOpen, setIntelOpen] = useState(false)
   const [intelSelecting, setIntelSelecting] = useState(true)
@@ -880,6 +885,28 @@ function RoomInner() {
     })
     return () => setTtsAudibleListener(null)
   }, [])
+
+  /**
+   * Host-side STT on guest mic — guests (esp. Huawei/iPhone) often lack
+   * Web Speech, so VoiceBridge never fires from their phone. We transcribe
+   * their LiveKit audio here and run the same translate→TTS path.
+   */
+  useRemotePeerStt({
+    // Any listener: transcribe remote mics locally (guest phones often lack Web Speech)
+    enabled: Boolean(translationOn && speakerOn && micReady),
+    sourceLangHint: peerLangCode || undefined,
+    remotes: remoteSttTracks,
+    onTranscript: (text, from) => {
+      onVoiceBridgePacket({
+        type: 'voicebridge',
+        v: 2,
+        text,
+        sourceLang: peerLangCode || 'en',
+        lang: nativeLang.code,
+        from,
+      })
+    },
+  })
 
   useEffect(() => {
     if (!hydrated || !isGuest) return
@@ -2584,6 +2611,7 @@ function RoomInner() {
               setMicReady(true)
               void stageRef.current?.unlockRemoteAudio?.()
             }}
+            onRemoteAudioTracks={setRemoteSttTracks}
             studioRoomId={stageStudioId}
             customBackground={stageCustomBg}
             customStudioRooms={stageCustomRooms}

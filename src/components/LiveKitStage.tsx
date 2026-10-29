@@ -23,7 +23,7 @@ import {
 } from 'livekit-client'
 
 /** Visible on the yellow Allow button — proves the phone loaded this build */
-const MEDIA_BUILD = 'cam22'
+const MEDIA_BUILD = 'cam23'
 import {
   BackgroundProcessor,
   supportsBackgroundProcessors,
@@ -161,6 +161,10 @@ type Props = {
   ) => void
   /** Fired once local mic track exists (after permission) */
   onMicReady?: () => void
+  /** Remote mic MediaStreamTrack — host-side STT when guest has no Web Speech */
+  onRemoteAudioTracks?: (
+    tracks: Array<{ identity: string; track: MediaStreamTrack }>
+  ) => void
 }
 
 function parseParticipantLanguage(raw: string | undefined): string {
@@ -511,6 +515,7 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
     onVoiceBridge,
     onRemoteLanguages,
     onMicReady,
+    onRemoteAudioTracks,
   },
   ref
 ) {
@@ -530,6 +535,8 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
   onVoiceBridgeRef.current = onVoiceBridge
   const onRemoteLanguagesRef = useRef(onRemoteLanguages)
   onRemoteLanguagesRef.current = onRemoteLanguages
+  const onRemoteAudioTracksRef = useRef(onRemoteAudioTracks)
+  onRemoteAudioTracksRef.current = onRemoteAudioTracks
   const languageRef = useRef(language)
   languageRef.current = language
   const remoteVideoEls = useRef(new Map<string, HTMLVideoElement>())
@@ -540,6 +547,16 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
   const remoteAudioTracks = useRef(
     new Map<string, { setVolume?: (v: number) => void; detach?: () => HTMLMediaElement[] }>()
   )
+  /** Underlying MediaStreamTracks for host-side STT */
+  const remoteMicStreams = useRef(new Map<string, MediaStreamTrack>())
+
+  function notifyRemoteAudioTracks() {
+    const list: Array<{ identity: string; track: MediaStreamTrack }> = []
+    remoteMicStreams.current.forEach((track, identity) => {
+      if (track.readyState === 'live') list.push({ identity, track })
+    })
+    onRemoteAudioTracksRef.current?.(list)
+  }
   const roomRef = useRef<Room | null>(null)
   const duckTimers = useRef(new Map<string, number>())
   const videoTrackRef = useRef<LocalVideoTrack | null>(null)
@@ -1648,8 +1665,14 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
               attach: () => HTMLMediaElement
               setVolume?: (v: number) => void
               detach?: () => HTMLMediaElement[]
+              mediaStreamTrack?: MediaStreamTrack
             }
             remoteAudioTracks.current.set(participant.identity, track)
+            const mst = track.mediaStreamTrack
+            if (mst) {
+              remoteMicStreams.current.set(participant.identity, mst)
+              notifyRemoteAudioTracks()
+            }
             const el = track.attach() as HTMLAudioElement
             el.dataset.identity = participant.identity
             el.className = 'hidden'
@@ -1700,6 +1723,8 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
           }
           remoteVideoTracks.current.delete(identity)
           remoteAudioTracks.current.delete(identity)
+          remoteMicStreams.current.delete(identity)
+          notifyRemoteAudioTracks()
           setRemoteCamTick((n) => n + 1)
           remoteAudioRef.current
             ?.querySelectorAll(`[data-identity="${CSS.escape(identity)}"]`)
@@ -1720,6 +1745,8 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
               syncRemotesList()
             } else if (publication.kind === Track.Kind.Audio) {
               remoteAudioTracks.current.delete(participant.identity)
+              remoteMicStreams.current.delete(participant.identity)
+              notifyRemoteAudioTracks()
               remoteAudioRef.current
                 ?.querySelectorAll(
                   `[data-identity="${CSS.escape(participant.identity)}"]`

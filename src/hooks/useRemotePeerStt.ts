@@ -18,14 +18,18 @@ export function useRemotePeerStt(options: {
   sourceLangHint?: string
   remotes: RemoteAudio[]
   onTranscript: (text: string, from: string) => void
+  onError?: (message: string) => void
 }) {
-  const { enabled, sourceLangHint, remotes, onTranscript } = options
+  const { enabled, sourceLangHint, remotes, onTranscript, onError } = options
   const onTranscriptRef = useRef(onTranscript)
   onTranscriptRef.current = onTranscript
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
   const langRef = useRef(sourceLangHint)
   langRef.current = sourceLangHint
   const busyRef = useRef(false)
   const lastSentRef = useRef('')
+  const lastErrAtRef = useRef(0)
 
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') return
@@ -100,6 +104,16 @@ export function useRemotePeerStt(options: {
           })
           const dataJson = (await res.json().catch(() => ({}))) as {
             text?: string
+            error?: string
+          }
+          if (!res.ok || dataJson.error) {
+            const now = Date.now()
+            if (now - lastErrAtRef.current > 8000) {
+              lastErrAtRef.current = now
+              onErrorRef.current?.(
+                dataJson.error || `STT HTTP ${res.status}`
+              )
+            }
           }
           const text = (dataJson.text || '').trim()
           const key = text.toLowerCase().replace(/\s+/g, ' ').slice(0, 120)
@@ -127,7 +141,7 @@ export function useRemotePeerStt(options: {
           sum += v * v
         }
         const rms = Math.sqrt(sum / data.length)
-        const hot = rms > 0.045
+        const hot = rms > 0.028
 
         if (isTtsSpeaking()) {
           // Don't capture while we play translation (avoid loop)
@@ -195,5 +209,7 @@ export function useRemotePeerStt(options: {
     return () => {
       cleanups.forEach((fn) => fn())
     }
-  }, [enabled, remotes])
+    // Stabilize on identity list — avoid restarting STT every parent render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, remotes.map((r) => r.identity).sort().join('|')])
 }

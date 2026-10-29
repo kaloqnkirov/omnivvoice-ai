@@ -894,7 +894,7 @@ function RoomInner() {
   useRemotePeerStt({
     // Any listener: transcribe remote mics locally (guest phones often lack Web Speech)
     enabled: Boolean(translationOn && speakerOn && micReady),
-    sourceLangHint: peerLangCode || undefined,
+    sourceLangHint: peerLangCode || 'en',
     remotes: remoteSttTracks,
     onTranscript: (text, from) => {
       onVoiceBridgePacket({
@@ -906,6 +906,7 @@ function RoomInner() {
         from,
       })
     },
+    onError: (message) => setTranslateError(`Превод STT: ${message}`),
   })
 
   useEffect(() => {

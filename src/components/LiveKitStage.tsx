@@ -23,7 +23,7 @@ import {
 } from 'livekit-client'
 
 /** Visible on the yellow Allow button — proves the phone loaded this build */
-const MEDIA_BUILD = 'cam23'
+const MEDIA_BUILD = 'cam24'
 import {
   BackgroundProcessor,
   supportsBackgroundProcessors,

@@ -2566,7 +2566,7 @@ function RoomInner() {
             pipCorner={streamPrefs?.pipCorner || 'br'}
             contentHint={streamPrefs?.contentHint || 'screenshare'}
             silhouetteReactions={isStreamingMode ? pipReactions : []}
-            // Duck raw only while translated TTS plays (isTtsSpeaking gate)
+            // Translation on → silence ALL raw remote mics; only TTS in my language
             duckRawRemoteMic={translationOn}
             silencePublishedMic={false}
             onVoiceBridge={onVoiceBridgePacket}

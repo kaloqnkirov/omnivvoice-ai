@@ -23,7 +23,7 @@ import {
 } from 'livekit-client'
 
 /** Visible on the yellow Allow button — proves the phone loaded this build */
-const MEDIA_BUILD = 'cam20'
+const MEDIA_BUILD = 'cam21'
 import {
   BackgroundProcessor,
   supportsBackgroundProcessors,
@@ -615,13 +615,13 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
   }
 
   /**
-   * Hear remote mic whenever speaker is on. Optional duck only while TTS
-   * is actively speaking — never leave the call in permanent silence.
+   * Translation ON → never play raw remote mic (EN/TR/…).
+   * Listener hears only VoiceBridge TTS in their chosen language.
    */
   function wantHearRawRemoteMic() {
     if (!speakerOnRef.current) return false
-    if (!duckRawRef.current) return true
-    return !isTtsSpeaking()
+    if (duckRawRef.current) return false
+    return true
   }
 
   /** Chrome/iOS block WebRTC playback until startAudio() runs in a user gesture */
@@ -634,26 +634,13 @@ const LiveKitStage = forwardRef<LiveKitStageHandle, Props>(function LiveKitStage
         /* ignore */
       }
     }
-    remoteAudioTracks.current.forEach((track) => {
-      try {
-        track.setVolume?.(1)
-      } catch {
-        /* ignore */
-      }
-    })
-    remoteAudioRef.current?.querySelectorAll('audio').forEach((node) => {
-      const el = node as HTMLAudioElement
-      if (!speakerOnRef.current) {
-        el.muted = true
-        el.volume = 0
-        return
-      }
-      // Force audible unless TTS is mid-duck
-      const hear = wantHearRawRemoteMic()
-      el.muted = !hear
-      el.volume = hear ? 1 : 0
-      void el.play().catch(() => undefined)
-    })
+    // Respect translation duck — do not force volume 1 while translating
+    muteAllRemoteRawMics()
+    if (wantHearRawRemoteMic()) {
+      remoteAudioRef.current?.querySelectorAll('audio').forEach((node) => {
+        void (node as HTMLAudioElement).play().catch(() => undefined)
+      })
+    }
   }
 
   function applyRawRemotePolicy(
